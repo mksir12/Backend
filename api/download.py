@@ -37,14 +37,9 @@ def get_file_info(link):
     session = requests.Session()
     page = session.get(link, headers=HEADERS)
 
-    # Save response for debugging
-    print("====== DEBUG HTML (partial) ======")
-print(page.text[:1000])  # only print first 1000 characters
-print("==================================")
-
-    # Check if cookie worked by looking for expected patterns
+    # ✅ Cookie test: check if redirected to login
     if "login" in page.url or "登录" in page.text or "Log in" in page.text:
-    raise Exception("❌ Cookie might be invalid — redirected to login page.")
+        raise Exception("❌ Cookie might be invalid — redirected to login page.")
 
     final_url = page.url
     parsed = urlparse(final_url)
@@ -56,11 +51,7 @@ print("==================================")
     logid = extract_between(page.text, 'dp-logid=', '&')
     bdstoken = extract_between(page.text, 'bdstoken":"', '"')
 
-    # Debug print (you can remove after testing)
-    print("Debug Tokens:")
-    print("  js_token:", js_token)
-    print("  logid:", logid)
-    print("  bdstoken:", bdstoken)
+    print("Debug tokens:", js_token, logid, bdstoken)
 
     if not all([js_token, logid, bdstoken]):
         raise Exception("Missing tokens: js_token / logid / bdstoken")
