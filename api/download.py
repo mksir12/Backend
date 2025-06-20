@@ -1,11 +1,11 @@
 import requests
-from urllib.parse import urlencode, urlparse, parse_qs
-from flask import Flask, request, jsonify
+from urllib.parse import urlparse, parse_qs, urlencode
+from flask import Flask, request
 
 app = Flask(__name__)
 
-# Your fixed Cookie header from your exported cookies:
-COOKIE_HEADER = (
+# Full cookie header string from your export
+COOKIES = (
     "lang=en;"
     "_ga_06ZNKL8C2E=GS2.1.s1750442327$o1$g1$t1750442392$j58$l0$h0;"
     "__stripe_mid=4b45b717-c613-4cb2-af79-fbafd25b88968752a4;"
@@ -19,6 +19,23 @@ COOKIE_HEADER = (
     "ndut_fmt=757D1CB569F951088BBB0306CE1E2325F4CEA1103666315D7B11C1FF85B8CAF0"
 )
 
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/91.0.4472.124 Safari/537.36"
+    ),
+    "Accept": "*/*",
+    "Cookie": COOKIES,
+    "Referer": "https://www.terabox.com/"
+}
+
+def extract_between(text, start, end):
+    try:
+        return text.split(start, 1)[1].split(end, 1)[0]
+    except Exception:
+        return ""
+
 def get_size(bytes_len: int) -> str:
     if bytes_len >= 1024 ** 3:
         return f"{bytes_len / 1024**3:.2f} GB"
@@ -28,37 +45,29 @@ def get_size(bytes_len: int) -> str:
         return f"{bytes_len / 1024:.2f} KB"
     return f"{bytes_len} bytes"
 
-def extract_between(text, start, end):
-    try:
-        return text.split(start, 1)[1].split(end, 1)[0]
-    except:
-        return ""
-
-def get_file_info(link):
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                      "AppleWebKit/537.36 (KHTML, like Gecko) "
-                      "Chrome/91.0.4472.124 Safari/537.36",
-        "Accept": "*/*",
-        "Cookie": COOKIE_HEADER,
-        "Referer": "https://www.terabox.com/"
-    }
-
+def get_file_info(terabox_url):
     session = requests.Session()
-    page = session.get(link, headers=headers)
+    page = session.get(terabox_url, headers=HEADERS)
 
-    if "login" in page.url or "登录" in page.text or "Log in" in page.text:
-        raise Exception("❌ Cookie is invalid or expired — redirected to login page.")
+    # Check if redirected to login page or blocked
+    if "login" in page.url.lower() or "登录" in page.text or "Log in" in page.text:
+        raise Exception("❌ Cookie invalid or session expired (redirected to login).")
 
     final_url = page.url
     parsed = urlparse(final_url)
     surl = parse_qs(parsed.query).get("surl", [None])[0]
     if not surl:
-        raise Exception("❌ Invalid Terabox link — missing 'surl' parameter")
+        raise Exception("❌ Invalid Terabox link (missing 'surl' param).")
 
+    # Extract tokens from page HTML
     js_token = extract_between(page.text, 'fn%28%22', '%22%29')
     logid = extract_between(page.text, 'dp-logid=', '&')
     bdstoken = extract_between(page.text, 'bdstoken":"', '"')
+
+    # DEBUG: print tokens
+    print("[DEBUG] js_token:", js_token)
+    print("[DEBUG] logid:", logid)
+    print("[DEBUG] bdstoken:", bdstoken)
 
     missing = []
     if not js_token:
@@ -70,6 +79,7 @@ def get_file_info(link):
     if missing:
         raise Exception(f"❌ Failed to extract tokens: {', '.join(missing)}")
 
+    # Build API request parameters
     params = {
         "app_id": "250528",
         "web": "1",
@@ -77,6 +87,7 @@ def get_file_info(link):
         "clienttype": "0",
         "jsToken": js_token,
         "dp-logid": logid,
+        "bdstoken": bdstoken,
         "page": "1",
         "num": "20",
         "by": "name",
@@ -86,12 +97,15 @@ def get_file_info(link):
         "root": "1,"
     }
 
-    info = session.get("https://www.terabox.app/share/list?" + urlencode(params), headers=headers).json()
+    # Request file list from Terabox API
+    api_url = "https://www.terabox.app/share/list?" + urlencode(params)
+    resp = session.get(api_url, headers=HEADERS)
 
-    if not info.get("list"):
-        raise Exception("❌ File list is empty — file might be private, deleted, or cookie invalid.")
+    data = resp.json()
+    if not data.get("list"):
+        raise Exception("❌ File list empty — file might be private, deleted, or cookie invalid.")
 
-    file = info["list"][0]
+    file = data["list"][0]
     return {
         "name": file.get("server_filename", "file"),
         "size": int(file.get("size", 0)),
@@ -106,37 +120,27 @@ def download_handler():
     bot_token = data.get("bot_token")
 
     if not chat_id or not terabox_link or not bot_token:
-        return jsonify({"error": "Missing chat_id, bot_token or link"}), 400
+        return "Missing data", 400
 
     try:
         file_info = get_file_info(terabox_link)
-
         file_name = file_info["name"]
         file_size = get_size(file_info["size"])
 
-        dl_headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                          "AppleWebKit/537.36 (KHTML, like Gecko) "
-                          "Chrome/91.0.4472.124 Safari/537.36",
-            "Accept": "*/*",
-            "Cookie": COOKIE_HEADER,
-            "Referer": "https://www.terabox.com/"
-        }
-
-        file_data = requests.get(file_info["link"], headers=dl_headers)
+        # Download the actual file content
+        file_response = requests.get(file_info["link"], headers=HEADERS)
+        file_response.raise_for_status()
 
         tg_api = f"https://api.telegram.org/bot{bot_token}/sendDocument"
-
         files = {
-            "document": (file_name, file_data.content)
+            "document": (file_name, file_response.content)
         }
         data = {
             "chat_id": chat_id,
             "caption": f"📄 {file_name}\n💾 {file_size}\n🔗 {terabox_link}"
         }
-
         requests.post(tg_api, data=data, files=files)
-        return jsonify({"status": "OK"}), 200
+        return "OK", 200
 
     except Exception as e:
         error_msg = f"❌ Error: {str(e)}"
@@ -147,7 +151,7 @@ def download_handler():
             )
         except:
             pass
-        return jsonify({"error": str(e)}), 500
+        return "Failed", 500
 
 if __name__ == "__main__":
-    app.run(port=5000, debug=True)
+    app.run(port=5000)
