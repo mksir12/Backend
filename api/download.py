@@ -38,12 +38,13 @@ def get_file_info(link):
     page = session.get(link, headers=HEADERS)
 
     # Save response for debugging
-    with open("terabox_debug.html", "w", encoding="utf-8") as f:
-        f.write(page.text)
+    print("====== DEBUG HTML (partial) ======")
+print(page.text[:1000])  # only print first 1000 characters
+print("==================================")
 
     # Check if cookie worked by looking for expected patterns
     if "login" in page.url or "登录" in page.text or "Log in" in page.text:
-        raise Exception("❌ Cookie might be invalid — redirected to login page.")
+    raise Exception("❌ Cookie might be invalid — redirected to login page.")
 
     final_url = page.url
     parsed = urlparse(final_url)
