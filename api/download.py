@@ -1,7 +1,7 @@
-# download.py
+# api/download.py
 # Backend for Terabox Downloader Bot
 # Credits: https://github.com/MN-BOTS
-#  @MrMNTG @MusammilN
+# @MrMNTG @MusammilN
 
 import os
 import tempfile
@@ -13,7 +13,8 @@ from urllib.parse import urlencode, urlparse, parse_qs
 
 app = FastAPI()
 
-COOKIE = "ndus=Y2f2tB1peHuigEgX5NpHQFeiY88k9XMojvuvxNVb"  # Add your own valid cookie here
+# Replace with your actual working Terabox cookie
+COOKIE = "ndus=Y2f2tB1peHuigEgX5NpHQFeiY88k9XMojvuvxNVb"
 
 HEADERS = {
     "Accept": "application/json, text/plain, */*",
@@ -40,8 +41,7 @@ DL_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                   "AppleWebKit/537.36 (KHTML, like Gecko) "
                   "Chrome/91.0.4472.124 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;"
-              "q=0.9,image/webp,*/*;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.5",
     "Referer": "https://www.terabox.com/",
     "DNT": "1",
@@ -49,7 +49,6 @@ DL_HEADERS = {
     "Upgrade-Insecure-Requests": "1",
     "Cookie": COOKIE,
 }
-
 
 def get_size(bytes_len: int) -> str:
     if bytes_len >= 1024 ** 3:
@@ -60,13 +59,11 @@ def get_size(bytes_len: int) -> str:
         return f"{bytes_len / 1024:.2f} KB"
     return f"{bytes_len} bytes"
 
-
 def find_between(text: str, start: str, end: str) -> str:
     try:
         return text.split(start, 1)[1].split(end, 1)[0]
     except Exception:
         return ""
-
 
 def get_file_info(share_url: str) -> dict:
     resp = requests.get(share_url, headers=HEADERS, allow_redirects=True)
@@ -94,6 +91,7 @@ def get_file_info(share_url: str) -> dict:
         "page": "1", "num": "20", "by": "name", "order": "asc",
         "site_referer": final_url, "shorturl": surl, "root": "1,",
     }
+
     info = requests.get(
         "https://www.terabox.app/share/list?" + urlencode(params),
         headers=HEADERS
@@ -112,44 +110,39 @@ def get_file_info(share_url: str) -> dict:
         "size_str": get_size(size_bytes)
     }
 
-
 @app.post("/api/download")
 async def download_handler(request: Request):
-    data = await request.json()
-    chat_id = data.get("chat_id")
-    link = data.get("link")
-    bot_token = data.get("bot_token")
-
-    if not chat_id or not link or not bot_token:
-        return JSONResponse(status_code=400, content={"error": "Missing required parameters."})
-
     try:
+        data = await request.json()
+        chat_id = data.get("chat_id")
+        link = data.get("link")
+        bot_token = data.get("bot_token")
+
+        if not chat_id or not link or not bot_token:
+            return JSONResponse(status_code=400, content={"error": "Missing required parameters."})
+
         info = get_file_info(link)
-    except Exception as e:
-        return JSONResponse(status_code=400, content={"error": f"Failed to get file info: {e}"})
+        temp_path = os.path.join(tempfile.gettempdir(), info["name"])
 
-    temp_path = os.path.join(tempfile.gettempdir(), info["name"])
-
-    try:
         # Download the file
         with requests.get(info["download_link"], headers=DL_HEADERS, stream=True) as r:
             r.raise_for_status()
             with open(temp_path, "wb") as f:
                 shutil.copyfileobj(r.raw, f)
 
-        # Upload file to Telegram
+        # Upload to Telegram
         send_url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
         with open(temp_path, "rb") as doc_file:
             files = {"document": (info["name"], doc_file)}
             data = {
                 "chat_id": chat_id,
-                "caption": f"File Name: {info['name']}\nFile Size: {info['size_str']}\nLink: {link}"
+                "caption": f"📄 {info['name']}\n📦 {info['size_str']}\n🔗 {link}"
             }
-            response = requests.post(send_url, files=files, data=data)
-            response.raise_for_status()
+            res = requests.post(send_url, files=files, data=data)
+            res.raise_for_status()
 
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": f"Failed to download or upload file: {e}"})
+        return JSONResponse(status_code=500, content={"error": f"Failed: {e}"})
 
     finally:
         if os.path.exists(temp_path):
