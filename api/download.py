@@ -36,8 +36,16 @@ def extract_between(text, start, end):
 def get_file_info(link):
     session = requests.Session()
     page = session.get(link, headers=HEADERS)
-    final_url = page.url
 
+    # Save response for debugging
+    with open("terabox_debug.html", "w", encoding="utf-8") as f:
+        f.write(page.text)
+
+    # Check if cookie worked by looking for expected patterns
+    if "login" in page.url or "登录" in page.text or "Log in" in page.text:
+        raise Exception("❌ Cookie might be invalid — redirected to login page.")
+
+    final_url = page.url
     parsed = urlparse(final_url)
     surl = parse_qs(parsed.query).get("surl", [None])[0]
     if not surl:
@@ -46,6 +54,12 @@ def get_file_info(link):
     js_token = extract_between(page.text, 'fn%28%22', '%22%29')
     logid = extract_between(page.text, 'dp-logid=', '&')
     bdstoken = extract_between(page.text, 'bdstoken":"', '"')
+
+    # Debug print (you can remove after testing)
+    print("Debug Tokens:")
+    print("  js_token:", js_token)
+    print("  logid:", logid)
+    print("  bdstoken:", bdstoken)
 
     if not all([js_token, logid, bdstoken]):
         raise Exception("Missing tokens: js_token / logid / bdstoken")
