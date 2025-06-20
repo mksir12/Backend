@@ -10,7 +10,7 @@ app = Flask(__name__)
 HEADERS = {
     "User-Agent": "Mozilla/5.0",
     "Accept": "*/*",
-    "Cookie": os.getenv("TERABOX_COOKIE") or "ndus=your_cookie_here"
+    "Cookie": "ndus=YzrYlCHteHuixx7IN5r0fc3sajSOYAHfqDoPM0dP"
 }
 
 DL_HEADERS = HEADERS.copy()
