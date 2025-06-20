@@ -1,40 +1,53 @@
+# download.py
+# Please give credits https://github.com/MN-BOTS
+#  @MrMNTG @MusammilN
+
+import os
+import tempfile
+import shutil
 import requests
-from urllib.parse import urlparse, parse_qs, urlencode
-from flask import Flask, request
+from urllib.parse import urlencode, urlparse, parse_qs
+from fastapi import FastAPI, Query, HTTPException
+from fastapi.responses import JSONResponse, FileResponse
 
-app = Flask(__name__)
+app = FastAPI()
 
-# Full cookie header string from your export
-COOKIES = (
-    "lang=en;"
-    "_ga_06ZNKL8C2E=GS2.1.s1750442327$o1$g1$t1750442392$j58$l0$h0;"
-    "__stripe_mid=4b45b717-c613-4cb2-af79-fbafd25b88968752a4;"
-    "__stripe_sid=3aab8ee5-a8e4-464b-ac12-f944c7b7359b6908fb;"
-    "ndus=Y2f2tB1peHuizo9kYj3bHv9M0-40sSfDkJ7JX3FG;"
-    "_ga=GA1.1.17342924.1750442327;"
-    "__bid_n=1978e623a107ede4924207;"
-    "_ga_HSVH9T016H=GS2.1.s1750442393$o1$g1$t1750442415$j38$l0$h0;"
-    "browserid=JUdYbDmTbPJJ5l64jiEnJnx2F2x-xGT_3qZRGl9gy7e-_7ZX7frk0Nhckjs=;"
-    "csrfToken=Bb-eUdOYpCPq8zMAj-JpP3zm;"
-    "ndut_fmt=757D1CB569F951088BBB0306CE1E2325F4CEA1103666315D7B11C1FF85B8CAF0"
-)
+COOKIE = "ndus=YzrYlCHteHuixx7IN5r0fc3sajSOYAHfqDoPM0dP"  # Add your own cookie here
 
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/91.0.4472.124 Safari/537.36"
-    ),
-    "Accept": "*/*",
-    "Cookie": COOKIES,
-    "Referer": "https://www.terabox.com/"
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Accept-Language": "en-US,en;q=0.9,hi;q=0.8",
+    "Connection": "keep-alive",
+    "DNT": "1",
+    "Host": "www.terabox.app",
+    "Upgrade-Insecure-Requests": "1",
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                   "AppleWebKit/537.36 (KHTML, like Gecko) "
+                   "Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0"),
+    "sec-ch-ua": '"Microsoft Edge";v="135", "Not-A.Brand";v="8", "Chromium";v="135"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Cookie": COOKIE,
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
 }
 
-def extract_between(text, start, end):
-    try:
-        return text.split(start, 1)[1].split(end, 1)[0]
-    except Exception:
-        return ""
+DL_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                   "AppleWebKit/537.36 (KHTML, like Gecko) "
+                   "Chrome/91.0.4472.124 Safari/537.36"),
+    "Accept": "text/html,application/xhtml+xml,application/xml;"
+              "q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+    "Referer": "https://www.terabox.com/",
+    "DNT": "1",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Cookie": COOKIE,
+}
 
 def get_size(bytes_len: int) -> str:
     if bytes_len >= 1024 ** 3:
@@ -45,113 +58,85 @@ def get_size(bytes_len: int) -> str:
         return f"{bytes_len / 1024:.2f} KB"
     return f"{bytes_len} bytes"
 
-def get_file_info(terabox_url):
-    session = requests.Session()
-    page = session.get(terabox_url, headers=HEADERS)
+def find_between(text: str, start: str, end: str) -> str:
+    try:
+        return text.split(start, 1)[1].split(end, 1)[0]
+    except Exception:
+        return ""
 
-    # Check if redirected to login page or blocked
-    if "login" in page.url.lower() or "登录" in page.text or "Log in" in page.text:
-        raise Exception("❌ Cookie invalid or session expired (redirected to login).")
+def get_file_info(share_url: str) -> dict:
+    resp = requests.get(share_url, headers=HEADERS, allow_redirects=True)
+    if resp.status_code != 200:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch share page ({resp.status_code})")
+    final_url = resp.url
 
-    final_url = page.url
     parsed = urlparse(final_url)
     surl = parse_qs(parsed.query).get("surl", [None])[0]
     if not surl:
-        raise Exception("❌ Invalid Terabox link (missing 'surl' param).")
+        raise HTTPException(status_code=400, detail="Invalid share URL (missing surl)")
 
-    # Extract tokens from page HTML
-    js_token = extract_between(page.text, 'fn%28%22', '%22%29')
-    logid = extract_between(page.text, 'dp-logid=', '&')
-    bdstoken = extract_between(page.text, 'bdstoken":"', '"')
+    page = requests.get(final_url, headers=HEADERS)
+    html = page.text
 
-    # DEBUG: print tokens
-    print("[DEBUG] js_token:", js_token)
-    print("[DEBUG] logid:", logid)
-    print("[DEBUG] bdstoken:", bdstoken)
+    js_token = find_between(html, 'fn%28%22', '%22%29')
+    logid = find_between(html, 'dp-logid=', '&')
+    bdstoken = find_between(html, 'bdstoken":"', '"')
+    if not all([js_token, logid, bdstoken]):
+        raise HTTPException(status_code=400, detail="Failed to extract authentication tokens")
 
-    missing = []
-    if not js_token:
-        missing.append("js_token")
-    if not logid:
-        missing.append("logid")
-    if not bdstoken:
-        missing.append("bdstoken")
-    if missing:
-        raise Exception(f"❌ Failed to extract tokens: {', '.join(missing)}")
-
-    # Build API request parameters
     params = {
-        "app_id": "250528",
-        "web": "1",
-        "channel": "dubox",
-        "clienttype": "0",
-        "jsToken": js_token,
-        "dp-logid": logid,
-        "bdstoken": bdstoken,
-        "page": "1",
-        "num": "20",
-        "by": "name",
-        "order": "asc",
-        "site_referer": final_url,
-        "shorturl": surl,
-        "root": "1,"
+        "app_id": "250528", "web": "1", "channel": "dubox",
+        "clienttype": "0", "jsToken": js_token, "dp-logid": logid,
+        "page": "1", "num": "20", "by": "name", "order": "asc",
+        "site_referer": final_url, "shorturl": surl, "root": "1,",
     }
+    info = requests.get(
+        "https://www.terabox.app/share/list?" + urlencode(params),
+        headers=HEADERS
+    ).json()
 
-    # Request file list from Terabox API
-    api_url = "https://www.terabox.app/share/list?" + urlencode(params)
-    resp = session.get(api_url, headers=HEADERS)
+    if info.get("errno") or not info.get("list"):
+        errmsg = info.get("errmsg", "Unknown error")
+        raise HTTPException(status_code=400, detail=f"List API error: {errmsg}")
 
-    data = resp.json()
-    if not data.get("list"):
-        raise Exception("❌ File list empty — file might be private, deleted, or cookie invalid.")
-
-    file = data["list"][0]
+    file = info["list"][0]
+    size_bytes = int(file.get("size", 0))
     return {
-        "name": file.get("server_filename", "file"),
-        "size": int(file.get("size", 0)),
-        "link": file.get("dlink", "")
+        "name": file.get("server_filename", "download"),
+        "download_link": file.get("dlink", ""),
+        "size_bytes": size_bytes,
+        "size_str": get_size(size_bytes)
     }
 
-@app.route("/api/download", methods=["POST"])
-def download_handler():
-    data = request.json
-    chat_id = data.get("chat_id")
-    terabox_link = data.get("link")
-    bot_token = data.get("bot_token")
+@app.get("/info")
+async def file_info(url: str = Query(..., description="Terabox share URL")):
+    """Get file info for a Terabox share URL."""
+    info = get_file_info(url)
+    return JSONResponse(content=info)
 
-    if not chat_id or not terabox_link or not bot_token:
-        return "Missing data", 400
+@app.get("/download")
+async def file_download(url: str = Query(..., description="Terabox share URL")):
+    """Download the file from Terabox share URL, stream as response."""
+    info = get_file_info(url)
+    temp_path = os.path.join(tempfile.gettempdir(), info["name"])
 
     try:
-        file_info = get_file_info(terabox_link)
-        file_name = file_info["name"]
-        file_size = get_size(file_info["size"])
+        with requests.get(info["download_link"], headers=DL_HEADERS, stream=True) as r:
+            r.raise_for_status()
+            with open(temp_path, "wb") as f:
+                shutil.copyfileobj(r.raw, f)
 
-        # Download the actual file content
-        file_response = requests.get(file_info["link"], headers=HEADERS)
-        file_response.raise_for_status()
-
-        tg_api = f"https://api.telegram.org/bot{bot_token}/sendDocument"
-        files = {
-            "document": (file_name, file_response.content)
-        }
-        data = {
-            "chat_id": chat_id,
-            "caption": f"📄 {file_name}\n💾 {file_size}\n🔗 {terabox_link}"
-        }
-        requests.post(tg_api, data=data, files=files)
-        return "OK", 200
-
+        return FileResponse(
+            path=temp_path,
+            filename=info["name"],
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": f"attachment; filename={info['name']}",
+                "X-File-Size": str(info["size_bytes"]),
+            }
+        )
     except Exception as e:
-        error_msg = f"❌ Error: {str(e)}"
-        try:
-            requests.post(
-                f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                json={"chat_id": chat_id, "text": error_msg}
-            )
-        except:
-            pass
-        return "Failed", 500
-
-if __name__ == "__main__":
-    app.run(port=5000)
+        raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
