@@ -37,25 +37,38 @@ def get_file_info(link):
     session = requests.Session()
     page = session.get(link, headers=HEADERS)
 
-    # ✅ Cookie test: check if redirected to login
+    # ✅ Detect if cookie is invalid (redirected to login page)
     if "login" in page.url or "登录" in page.text or "Log in" in page.text:
-        raise Exception("❌ Cookie might be invalid — redirected to login page.")
+        raise Exception("❌ Cookie is invalid or expired — redirected to login page.")
 
     final_url = page.url
     parsed = urlparse(final_url)
     surl = parse_qs(parsed.query).get("surl", [None])[0]
     if not surl:
-        raise Exception("Invalid Terabox URL (surl missing)")
+        raise Exception("❌ Invalid Terabox link — missing 'surl' in URL")
 
+    # 🧪 Try to extract the required tokens
     js_token = extract_between(page.text, 'fn%28%22', '%22%29')
     logid = extract_between(page.text, 'dp-logid=', '&')
     bdstoken = extract_between(page.text, 'bdstoken":"', '"')
 
-    print("Debug tokens:", js_token, logid, bdstoken)
+    # 🧵 Log all three tokens to verify
+    print("[DEBUG] js_token:", js_token)
+    print("[DEBUG] logid:", logid)
+    print("[DEBUG] bdstoken:", bdstoken)
 
-    if not all([js_token, logid, bdstoken]):
-        raise Exception("Missing tokens: js_token / logid / bdstoken")
+    # 🧨 Fail clearly and explain what token(s) are missing
+    missing = []
+    if not js_token:
+        missing.append("js_token")
+    if not logid:
+        missing.append("logid")
+    if not bdstoken:
+        missing.append("bdstoken")
+    if missing:
+        raise Exception(f"❌ Failed to extract tokens: {', '.join(missing)} — possibly due to Terabox page layout or cookie issue.")
 
+    # ✅ Continue if all tokens are found
     params = {
         "app_id": "250528",
         "web": "1",
@@ -75,7 +88,7 @@ def get_file_info(link):
     info = session.get("https://www.terabox.app/share/list?" + urlencode(params), headers=HEADERS).json()
 
     if not info.get("list"):
-        raise Exception("Failed to retrieve file list from Terabox API")
+        raise Exception("❌ File list is empty — maybe the file is private, deleted, or cookie is invalid.")
 
     file = info["list"][0]
     return {
