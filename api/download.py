@@ -1,4 +1,3 @@
-# api/download.py
 import os
 import json
 import requests
@@ -7,8 +6,11 @@ from flask import Flask, request
 
 app = Flask(__name__)
 
+# ✅ Fixed headers with cookie
 HEADERS = {
-    "User-Agent": "Mozilla/5.0",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                  "Chrome/91.0.4472.124 Safari/537.36",
     "Accept": "*/*",
     "Cookie": "ndus=YzrYlCHteHuixx7IN5r0fc3sajSOYAHfqDoPM0dP"
 }
@@ -39,23 +41,36 @@ def get_file_info(link):
     parsed = urlparse(final_url)
     surl = parse_qs(parsed.query).get("surl", [None])[0]
     if not surl:
-        raise Exception("Invalid Terabox URL")
+        raise Exception("Invalid Terabox URL (surl missing)")
 
     js_token = extract_between(page.text, 'fn%28%22', '%22%29')
     logid = extract_between(page.text, 'dp-logid=', '&')
     bdstoken = extract_between(page.text, 'bdstoken":"', '"')
 
     if not all([js_token, logid, bdstoken]):
-        raise Exception("Missing tokens")
+        raise Exception("Missing tokens: js_token / logid / bdstoken")
 
     params = {
-        "app_id": "250528", "web": "1", "channel": "dubox",
-        "clienttype": "0", "jsToken": js_token, "dp-logid": logid,
-        "page": "1", "num": "20", "by": "name", "order": "asc",
-        "site_referer": final_url, "shorturl": surl, "root": "1,"
+        "app_id": "250528",
+        "web": "1",
+        "channel": "dubox",
+        "clienttype": "0",
+        "jsToken": js_token,
+        "dp-logid": logid,
+        "page": "1",
+        "num": "20",
+        "by": "name",
+        "order": "asc",
+        "site_referer": final_url,
+        "shorturl": surl,
+        "root": "1,"
     }
 
     info = session.get("https://www.terabox.app/share/list?" + urlencode(params), headers=HEADERS).json()
+
+    if not info.get("list"):
+        raise Exception("Failed to retrieve file list from Terabox API")
+
     file = info["list"][0]
     return {
         "name": file.get("server_filename", "file"),
@@ -94,8 +109,11 @@ def download_handler():
 
     except Exception as e:
         error_msg = f"❌ Error: {str(e)}"
-        requests.post(
-            f"https://api.telegram.org/bot{bot_token}/sendMessage",
-            json={"chat_id": chat_id, "text": error_msg}
-        )
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                json={"chat_id": chat_id, "text": error_msg}
+            )
+        except:
+            pass
         return "Failed", 500
