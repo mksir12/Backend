@@ -1,22 +1,23 @@
-import os
-import json
 import requests
 from urllib.parse import urlencode, urlparse, parse_qs
-from flask import Flask, request
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# ✅ Fixed headers with cookie
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                  "AppleWebKit/537.36 (KHTML, like Gecko) "
-                  "Chrome/91.0.4472.124 Safari/537.36",
-    "Accept": "*/*",
-    "Cookie": "ndus=Y2f2tB1peHuigEgX5NpHQFeiY88k9XMojvuvxNVb"
-}
-
-DL_HEADERS = HEADERS.copy()
-DL_HEADERS["Referer"] = "https://www.terabox.com/"
+# Your fixed Cookie header from your exported cookies:
+COOKIE_HEADER = (
+    "lang=en;"
+    "_ga_06ZNKL8C2E=GS2.1.s1750442327$o1$g1$t1750442392$j58$l0$h0;"
+    "__stripe_mid=4b45b717-c613-4cb2-af79-fbafd25b88968752a4;"
+    "__stripe_sid=3aab8ee5-a8e4-464b-ac12-f944c7b7359b6908fb;"
+    "ndus=Y2f2tB1peHuizo9kYj3bHv9M0-40sSfDkJ7JX3FG;"
+    "_ga=GA1.1.17342924.1750442327;"
+    "__bid_n=1978e623a107ede4924207;"
+    "_ga_HSVH9T016H=GS2.1.s1750442393$o1$g1$t1750442415$j38$l0$h0;"
+    "browserid=JUdYbDmTbPJJ5l64jiEnJnx2F2x-xGT_3qZRGl9gy7e-_7ZX7frk0Nhckjs=;"
+    "csrfToken=Bb-eUdOYpCPq8zMAj-JpP3zm;"
+    "ndut_fmt=757D1CB569F951088BBB0306CE1E2325F4CEA1103666315D7B11C1FF85B8CAF0"
+)
 
 def get_size(bytes_len: int) -> str:
     if bytes_len >= 1024 ** 3:
@@ -34,10 +35,18 @@ def extract_between(text, start, end):
         return ""
 
 def get_file_info(link):
-    session = requests.Session()
-    page = session.get(link, headers=HEADERS)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/91.0.4472.124 Safari/537.36",
+        "Accept": "*/*",
+        "Cookie": COOKIE_HEADER,
+        "Referer": "https://www.terabox.com/"
+    }
 
-    # ✅ Detect if cookie is invalid (redirected to login page)
+    session = requests.Session()
+    page = session.get(link, headers=headers)
+
     if "login" in page.url or "登录" in page.text or "Log in" in page.text:
         raise Exception("❌ Cookie is invalid or expired — redirected to login page.")
 
@@ -45,19 +54,12 @@ def get_file_info(link):
     parsed = urlparse(final_url)
     surl = parse_qs(parsed.query).get("surl", [None])[0]
     if not surl:
-        raise Exception("❌ Invalid Terabox link — missing 'surl' in URL")
+        raise Exception("❌ Invalid Terabox link — missing 'surl' parameter")
 
-    # 🧪 Try to extract the required tokens
     js_token = extract_between(page.text, 'fn%28%22', '%22%29')
     logid = extract_between(page.text, 'dp-logid=', '&')
     bdstoken = extract_between(page.text, 'bdstoken":"', '"')
 
-    # 🧵 Log all three tokens to verify
-    print("[DEBUG] js_token:", js_token)
-    print("[DEBUG] logid:", logid)
-    print("[DEBUG] bdstoken:", bdstoken)
-
-    # 🧨 Fail clearly and explain what token(s) are missing
     missing = []
     if not js_token:
         missing.append("js_token")
@@ -66,9 +68,8 @@ def get_file_info(link):
     if not bdstoken:
         missing.append("bdstoken")
     if missing:
-        raise Exception(f"❌ Failed to extract tokens: {', '.join(missing)} — possibly due to Terabox page layout or cookie issue.")
+        raise Exception(f"❌ Failed to extract tokens: {', '.join(missing)}")
 
-    # ✅ Continue if all tokens are found
     params = {
         "app_id": "250528",
         "web": "1",
@@ -85,10 +86,10 @@ def get_file_info(link):
         "root": "1,"
     }
 
-    info = session.get("https://www.terabox.app/share/list?" + urlencode(params), headers=HEADERS).json()
+    info = session.get("https://www.terabox.app/share/list?" + urlencode(params), headers=headers).json()
 
     if not info.get("list"):
-        raise Exception("❌ File list is empty — maybe the file is private, deleted, or cookie is invalid.")
+        raise Exception("❌ File list is empty — file might be private, deleted, or cookie invalid.")
 
     file = info["list"][0]
     return {
@@ -105,14 +106,25 @@ def download_handler():
     bot_token = data.get("bot_token")
 
     if not chat_id or not terabox_link or not bot_token:
-        return "Missing data", 400
+        return jsonify({"error": "Missing chat_id, bot_token or link"}), 400
 
     try:
         file_info = get_file_info(terabox_link)
+
         file_name = file_info["name"]
         file_size = get_size(file_info["size"])
 
-        file_data = requests.get(file_info["link"], headers=DL_HEADERS)
+        dl_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/91.0.4472.124 Safari/537.36",
+            "Accept": "*/*",
+            "Cookie": COOKIE_HEADER,
+            "Referer": "https://www.terabox.com/"
+        }
+
+        file_data = requests.get(file_info["link"], headers=dl_headers)
+
         tg_api = f"https://api.telegram.org/bot{bot_token}/sendDocument"
 
         files = {
@@ -124,7 +136,7 @@ def download_handler():
         }
 
         requests.post(tg_api, data=data, files=files)
-        return "OK", 200
+        return jsonify({"status": "OK"}), 200
 
     except Exception as e:
         error_msg = f"❌ Error: {str(e)}"
@@ -135,4 +147,7 @@ def download_handler():
             )
         except:
             pass
-        return "Failed", 500
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == "__main__":
+    app.run(port=5000, debug=True)
