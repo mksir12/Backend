@@ -1,18 +1,19 @@
 # download.py
-# Please give credits https://github.com/MN-BOTS
+# Backend for Terabox Downloader Bot
+# Credits: https://github.com/MN-BOTS
 #  @MrMNTG @MusammilN
 
 import os
 import tempfile
 import shutil
 import requests
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from urllib.parse import urlencode, urlparse, parse_qs
-from fastapi import FastAPI, Query, HTTPException
-from fastapi.responses import JSONResponse, FileResponse
 
 app = FastAPI()
 
-COOKIE = "ndus=YzrYlCHteHuixx7IN5r0fc3sajSOYAHfqDoPM0dP"  # Add your own cookie here
+COOKIE = "ndus=Y2f2tB1peHuigEgX5NpHQFeiY88k9XMojvuvxNVb"  # Add your own valid cookie here
 
 HEADERS = {
     "Accept": "application/json, text/plain, */*",
@@ -22,9 +23,9 @@ HEADERS = {
     "DNT": "1",
     "Host": "www.terabox.app",
     "Upgrade-Insecure-Requests": "1",
-    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                   "AppleWebKit/537.36 (KHTML, like Gecko) "
-                   "Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0"),
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                  "Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0",
     "sec-ch-ua": '"Microsoft Edge";v="135", "Not-A.Brand";v="8", "Chromium";v="135"',
     "Sec-Fetch-Dest": "document",
     "Sec-Fetch-Mode": "navigate",
@@ -36,9 +37,9 @@ HEADERS = {
 }
 
 DL_HEADERS = {
-    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                   "AppleWebKit/537.36 (KHTML, like Gecko) "
-                   "Chrome/91.0.4472.124 Safari/537.36"),
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                  "Chrome/91.0.4472.124 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;"
               "q=0.9,image/webp,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.5",
@@ -49,6 +50,7 @@ DL_HEADERS = {
     "Cookie": COOKIE,
 }
 
+
 def get_size(bytes_len: int) -> str:
     if bytes_len >= 1024 ** 3:
         return f"{bytes_len / 1024**3:.2f} GB"
@@ -58,22 +60,24 @@ def get_size(bytes_len: int) -> str:
         return f"{bytes_len / 1024:.2f} KB"
     return f"{bytes_len} bytes"
 
+
 def find_between(text: str, start: str, end: str) -> str:
     try:
         return text.split(start, 1)[1].split(end, 1)[0]
     except Exception:
         return ""
 
+
 def get_file_info(share_url: str) -> dict:
     resp = requests.get(share_url, headers=HEADERS, allow_redirects=True)
     if resp.status_code != 200:
-        raise HTTPException(status_code=400, detail=f"Failed to fetch share page ({resp.status_code})")
+        raise ValueError(f"Failed to fetch share page ({resp.status_code})")
     final_url = resp.url
 
     parsed = urlparse(final_url)
     surl = parse_qs(parsed.query).get("surl", [None])[0]
     if not surl:
-        raise HTTPException(status_code=400, detail="Invalid share URL (missing surl)")
+        raise ValueError("Invalid share URL (missing surl)")
 
     page = requests.get(final_url, headers=HEADERS)
     html = page.text
@@ -82,7 +86,7 @@ def get_file_info(share_url: str) -> dict:
     logid = find_between(html, 'dp-logid=', '&')
     bdstoken = find_between(html, 'bdstoken":"', '"')
     if not all([js_token, logid, bdstoken]):
-        raise HTTPException(status_code=400, detail="Failed to extract authentication tokens")
+        raise ValueError("Failed to extract authentication tokens")
 
     params = {
         "app_id": "250528", "web": "1", "channel": "dubox",
@@ -97,7 +101,7 @@ def get_file_info(share_url: str) -> dict:
 
     if info.get("errno") or not info.get("list"):
         errmsg = info.get("errmsg", "Unknown error")
-        raise HTTPException(status_code=400, detail=f"List API error: {errmsg}")
+        raise ValueError(f"List API error: {errmsg}")
 
     file = info["list"][0]
     size_bytes = int(file.get("size", 0))
@@ -108,35 +112,47 @@ def get_file_info(share_url: str) -> dict:
         "size_str": get_size(size_bytes)
     }
 
-@app.get("/info")
-async def file_info(url: str = Query(..., description="Terabox share URL")):
-    """Get file info for a Terabox share URL."""
-    info = get_file_info(url)
-    return JSONResponse(content=info)
 
-@app.get("/download")
-async def file_download(url: str = Query(..., description="Terabox share URL")):
-    """Download the file from Terabox share URL, stream as response."""
-    info = get_file_info(url)
+@app.post("/api/download")
+async def download_handler(request: Request):
+    data = await request.json()
+    chat_id = data.get("chat_id")
+    link = data.get("link")
+    bot_token = data.get("bot_token")
+
+    if not chat_id or not link or not bot_token:
+        return JSONResponse(status_code=400, content={"error": "Missing required parameters."})
+
+    try:
+        info = get_file_info(link)
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"error": f"Failed to get file info: {e}"})
+
     temp_path = os.path.join(tempfile.gettempdir(), info["name"])
 
     try:
+        # Download the file
         with requests.get(info["download_link"], headers=DL_HEADERS, stream=True) as r:
             r.raise_for_status()
             with open(temp_path, "wb") as f:
                 shutil.copyfileobj(r.raw, f)
 
-        return FileResponse(
-            path=temp_path,
-            filename=info["name"],
-            media_type="application/octet-stream",
-            headers={
-                "Content-Disposition": f"attachment; filename={info['name']}",
-                "X-File-Size": str(info["size_bytes"]),
+        # Upload file to Telegram
+        send_url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
+        with open(temp_path, "rb") as doc_file:
+            files = {"document": (info["name"], doc_file)}
+            data = {
+                "chat_id": chat_id,
+                "caption": f"File Name: {info['name']}\nFile Size: {info['size_str']}\nLink: {link}"
             }
-        )
+            response = requests.post(send_url, files=files, data=data)
+            response.raise_for_status()
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
+        return JSONResponse(status_code=500, content={"error": f"Failed to download or upload file: {e}"})
+
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
+
+    return {"status": "success", "message": "File sent to Telegram"}
