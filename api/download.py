@@ -4,7 +4,7 @@
 # @MrMNTG @MusammilN
 
 import os
-import tempfile
+import tempfile      # ✅ Added missing import
 import shutil
 import requests
 from fastapi import FastAPI, Request
@@ -13,8 +13,7 @@ from urllib.parse import urlencode, urlparse, parse_qs
 
 app = FastAPI()
 
-# Replace with your actual working Terabox cookie
-COOKIE = "ndus=Y2f2tB1peHuigEgX5NpHQFeiY88k9XMojvuvxNVb"
+COOKIE = "ndus=Y2f2tB1peHuigEgX5NpHQFeiY88k9XMojvuvxNVb"  # Replace with a **valid** Terabox ndus cookie
 
 HEADERS = {
     "Accept": "application/json, text/plain, */*",
@@ -27,26 +26,15 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                   "AppleWebKit/537.36 (KHTML, like Gecko) "
                   "Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0",
-    "sec-ch-ua": '"Microsoft Edge";v="135", "Not-A.Brand";v="8", "Chromium";v="135"',
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "none",
-    "Sec-Fetch-User": "?1",
     "Cookie": COOKIE,
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": '"Windows"',
 }
 
 DL_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                  "AppleWebKit/537.36 (KHTML, like Gecko) "
-                  "Chrome/91.0.4472.124 Safari/537.36",
+    "User-Agent": HEADERS["User-Agent"],
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.5",
     "Referer": "https://www.terabox.com/",
-    "DNT": "1",
     "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
     "Cookie": COOKIE,
 }
 
@@ -62,7 +50,7 @@ def get_size(bytes_len: int) -> str:
 def find_between(text: str, start: str, end: str) -> str:
     try:
         return text.split(start, 1)[1].split(end, 1)[0]
-    except Exception:
+    except:
         return ""
 
 def get_file_info(share_url: str) -> dict:
@@ -76,12 +64,11 @@ def get_file_info(share_url: str) -> dict:
     if not surl:
         raise ValueError("Invalid share URL (missing surl)")
 
-    page = requests.get(final_url, headers=HEADERS)
-    html = page.text
-
+    html = requests.get(final_url, headers=HEADERS).text
     js_token = find_between(html, 'fn%28%22', '%22%29')
     logid = find_between(html, 'dp-logid=', '&')
     bdstoken = find_between(html, 'bdstoken":"', '"')
+
     if not all([js_token, logid, bdstoken]):
         raise ValueError("Failed to extract authentication tokens")
 
@@ -102,50 +89,51 @@ def get_file_info(share_url: str) -> dict:
         raise ValueError(f"List API error: {errmsg}")
 
     file = info["list"][0]
-    size_bytes = int(file.get("size", 0))
+    size = int(file.get("size", 0))
     return {
         "name": file.get("server_filename", "download"),
         "download_link": file.get("dlink", ""),
-        "size_bytes": size_bytes,
-        "size_str": get_size(size_bytes)
+        "size_bytes": size,
+        "size_str": get_size(size)
     }
 
 @app.post("/api/download")
 async def download_handler(request: Request):
     try:
-        data = await request.json()
-        chat_id = data.get("chat_id")
-        link = data.get("link")
-        bot_token = data.get("bot_token")
+        payload = await request.json()
+        chat_id = payload.get("chat_id")
+        link = payload.get("link")
+        bot_token = payload.get("bot_token")
 
         if not chat_id or not link or not bot_token:
-            return JSONResponse(status_code=400, content={"error": "Missing required parameters."})
+            return JSONResponse(status_code=400, content={"error": "Missing required fields."})
 
         info = get_file_info(link)
-        temp_path = os.path.join(tempfile.gettempdir(), info["name"])
+        temp_file = os.path.join(tempfile.gettempdir(), info["name"])
 
-        # Download the file
-        with requests.get(info["download_link"], headers=DL_HEADERS, stream=True) as r:
-            r.raise_for_status()
-            with open(temp_path, "wb") as f:
-                shutil.copyfileobj(r.raw, f)
+        with requests.get(info["download_link"], headers=DL_HEADERS, stream=True) as resp:
+            resp.raise_for_status()
+            with open(temp_file, "wb") as out:
+                shutil.copyfileobj(resp.raw, out)
 
-        # Upload to Telegram
         send_url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
-        with open(temp_path, "rb") as doc_file:
-            files = {"document": (info["name"], doc_file)}
-            data = {
+        with open(temp_file, "rb") as doc:
+            files = {"document": (info["name"], doc)}
+            msg_data = {
                 "chat_id": chat_id,
-                "caption": f"📄 {info['name']}\n📦 {info['size_str']}\n🔗 {link}"
+                "caption": f"📄 {info['name']}\n💾 {info['size_str']}\n🔗 {link}"
             }
-            res = requests.post(send_url, files=files, data=data)
+            res = requests.post(send_url, files=files, data=msg_data)
             res.raise_for_status()
 
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": f"Failed: {e}"})
+        # include full traceback in logs
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
     finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+        if 'temp_file' in locals() and os.path.exists(temp_file):
+            os.remove(temp_file)
 
-    return {"status": "success", "message": "File sent to Telegram"}
+    return {"status": "success", "message": "Sent to Telegram"}
