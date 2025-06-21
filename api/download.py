@@ -38,9 +38,15 @@ async def download_handler(request: Request):
         return JSONResponse(status_code=400, content={"error": "Missing fields."})
 
     # Fetch file info
-    file_info = terabox.get_file_info(link)
-    if "error" in file_info:
-        return JSONResponse(status_code=500, content={"error": file_info["error"]})
+    # After fetching file_info
+file_info = terabox.get_file_info(link)
+
+# Check for errors or missing download URL
+if "error" in file_info:
+    return JSONResponse(status_code=500, content={"error": file_info["error"]})
+if not file_info.get("download_url"):
+    return JSONResponse(status_code=500, content={"error": "Download URL not found. Please check if the file is public or the link is valid."})
+print("File info:", file_info)
 
     # Notify user
     caption = (
