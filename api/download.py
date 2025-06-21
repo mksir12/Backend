@@ -81,12 +81,12 @@ def get_file_info(share_url: str) -> dict:
     file = info["list"][0]
     size = int(file.get("size", 0))
     return {
-    "name": file.get("server_filename", "file"),
-    "download_link": file.get("dlink", ""),
-    "size_bytes": size,
-    "size_str": get_size(size),
-    "thumbnail": thumb_url
-  }
+        "name": file.get("server_filename", "file"),
+        "download_link": file.get("dlink", ""),
+        "size_bytes": size,
+        "size_str": get_size(size),
+        "thumbnail": thumb_url
+    }
 
 async def send_photo_message(bot_token: str, chat_id: str, photo: str, caption: str):
     await asyncio.to_thread(requests.post,
@@ -96,6 +96,17 @@ async def send_photo_message(bot_token: str, chat_id: str, photo: str, caption: 
             "photo": photo,
             "caption": caption,
             "parse_mode": "Markdown"
+        }
+    )
+
+async def send_telegram_message(bot_token: str, chat_id: str, text: str):
+    await asyncio.to_thread(requests.post,
+        f"https://api.telegram.org/bot{bot_token}/sendMessage",
+        json={
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True
         }
     )
 
