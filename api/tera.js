@@ -1,14 +1,11 @@
-const express = require("express");
-const axios = require("axios");
-const app = express();
-const PORT = process.env.PORT || 3000;
+import axios from "axios";
 
-const COOKIE = "ndus=Y2f2tB1peHuigEgX5NpHQFeiY88k9XMojvuvxNVb"; // Change if needed
+const COOKIE = "ndus=Y2f2tB1peHuigEgX5NpHQFeiY88k9XMojvuvxNVb";
 
 const HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/135.0.0.0 Safari/537.36",
-  "Cookie": COOKIE,
+  Cookie: COOKIE,
 };
 
 function getSize(bytes) {
@@ -80,7 +77,10 @@ async function getFileInfo(shareUrl) {
   }
 }
 
-app.get("/tera", async (req, res) => {
+export default async function handler(req, res) {
+  if (req.method !== "GET") {
+    return res.status(405).json({ error: "Method Not Allowed" });
+  }
   const { url } = req.query;
   if (!url) {
     return res.status(400).json({ error: "Missing 'url' query parameter" });
@@ -88,12 +88,8 @@ app.get("/tera", async (req, res) => {
 
   try {
     const info = await getFileInfo(url);
-    res.json({ status: "success", ...info });
+    res.status(200).json({ status: "success", ...info });
   } catch (err) {
     res.status(500).json({ status: "error", message: err.message });
   }
-});
-
-app.listen(PORT, () => {
-  console.log(`🚀 Server running at http://localhost:${PORT}`);
-});
+}
