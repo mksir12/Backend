@@ -70,13 +70,14 @@ async def download_with_progress(url, dest_path, total_size, bot_token, chat_id,
             eta = int((total_size - downloaded) / speed) if speed else 0
             bar = "█" * int(percent // 10) + " " * (10 - int(percent // 10))
             text = (
-                f"⬇️ Downloading: {file_name}\n\n"
-                f"🔴 `{bar}` {percent:.1f}%\n"
-                f"💾 {get_size(downloaded)} / {get_size(total_size)}\n\n"
-                f"⚡ Speed: {get_size(int(speed))}/s  ⏱️ ETA: {eta}s\n"
-                f"👤 User: User"
-            )
-            payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
+    f"⬇️ **Downloading:** *{file_name}*\n\n"
+    f"🔴 `{bar}` **{percent:.1f}%**\n"
+    f"💾 **{get_size(downloaded)} / {get_size(total_size)}**\n\n"
+    f"⚡ **Speed:** `{get_size(int(speed))}/s`\n"
+    f"⏱️ **ETA:** `{eta}s`\n"
+    f"👤 **User:** *User*"
+)
+payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
             if message_id is None:
                 resp = requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
                 message_id = resp.json().get("result", {}).get("message_id")
