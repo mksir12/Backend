@@ -10,6 +10,7 @@ from urllib.parse import urlencode, urlparse, parse_qs
 
 app = FastAPI()
 
+# Replace with a valid cookie if needed
 COOKIE = "ndus=Y2f2tB1peHuigEgX5NpHQFeiY88k9XMojvuvxNVb"
 
 HEADERS = {
@@ -39,12 +40,6 @@ def extract_token(pattern: str, text: str) -> str:
     match = re.search(pattern, text)
     return match.group(1) if match else None
 
-def get_real_download_url(dlink: str) -> str:
-    response = requests.get(dlink, headers=DL_HEADERS, allow_redirects=False)
-    if response.status_code in [302, 301] and "Location" in response.headers:
-        return response.headers["Location"]
-    raise ValueError("Failed to resolve real download URL from dlink.")
-
 def get_file_info(share_url: str) -> dict:
     resp = requests.get(share_url, headers=HEADERS, allow_redirects=True)
     if resp.status_code != 200:
@@ -61,12 +56,11 @@ def get_file_info(share_url: str) -> dict:
 
     js_token = extract_token(r'fn%28%22([A-F0-9]{64,})%22%29', html)
     logid = extract_token(r'dp-logid=([a-zA-Z0-9]+)&', html)
-    bdstoken = extract_token(r'"bdstoken":"([^"]+)"', html)  # <-- added
+    bdstoken = extract_token(r'"bdstoken":"([^"]+)"', html)  # Optional: only if needed
 
     if not js_token or not logid:
         print("⚠️ js_token:", js_token)
         print("⚠️ logid:", logid)
-        print("⚠️ bdstoken:", bdstoken)  # optional debug
         print("⚠️ HTML:", html[:2000])
         raise ValueError("Failed to extract authentication tokens. Check HTML format.")
 
@@ -86,17 +80,13 @@ def get_file_info(share_url: str) -> dict:
         raise ValueError(f"API Error: {info.get('errmsg', 'Unknown error')}")
 
     file = info["list"][0]
-    raw_dlink = file.get("dlink", "")
-    real_dlink = get_real_download_url(raw_dlink)
     size = int(file.get("size", 0))
-
     return {
         "name": file.get("server_filename", "file"),
-        "download_link": real_dlink,
+        "download_link": file.get("dlink", ""),
         "size_bytes": size,
         "size_str": get_size(size),
-        "thumbnail": thumb_url,
-        "bdstoken": bdstoken  # included in return dict (in case needed later)
+        "thumbnail": thumb_url
     }
 
 async def send_photo_message(bot_token: str, chat_id: str, photo: str, caption: str):
@@ -133,8 +123,10 @@ async def download_handler(request: Request):
         if not all([chat_id, link, bot_token]):
             return JSONResponse(status_code=400, content={"error": "Missing required fields."})
 
+        # Get file info first
         info = get_file_info(link)
 
+        # Send thumbnail message
         if info.get("thumbnail"):
             await send_photo_message(
                 bot_token, chat_id, info["thumbnail"],
@@ -146,17 +138,20 @@ async def download_handler(request: Request):
                 f"📩 *Link received!*\n⏳ Processing...\n🔗 [TeraBox Link]({link})"
             )
 
+        # Send downloading notice
         await send_telegram_message(
             bot_token, chat_id,
             f"⏳ *Downloading...*\n📄 *{info['name']}*\n💾 *{info['size_str']}*"
         )
 
+        # Download file to temp
         temp_file = os.path.join(tempfile.gettempdir(), info["name"])
         with requests.get(info["download_link"], headers=DL_HEADERS, stream=True) as r:
             r.raise_for_status()
             with open(temp_file, "wb") as f:
                 shutil.copyfileobj(r.raw, f)
 
+        # Send document
         with open(temp_file, "rb") as f:
             files = {"document": (info["name"], f)}
             data = {
