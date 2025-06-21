@@ -1,18 +1,12 @@
 import os
 import traceback
-import tempfile
 import asyncio
+import tempfile
+import requests
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from TeraboxDL import TeraboxDL
-import requests
 
 app = FastAPI()
-
-# Set your cookie here (make sure ndus=... is valid)
-COOKIE = os.getenv("TERABOX_COOKIE", "lang=en; ndus=Y2f2tB1peHuigEgX5NpHQFeiY88k9XMojvuvxNVb")
-terabox = TeraboxDL(COOKIE)
-
 
 async def send_photo_message(bot_token: str, chat_id: str, photo: str, caption: str):
     await asyncio.to_thread(requests.post,
@@ -24,7 +18,6 @@ async def send_photo_message(bot_token: str, chat_id: str, photo: str, caption: 
             "parse_mode": "Markdown"
         }
     )
-
 
 async def send_telegram_message(bot_token: str, chat_id: str, text: str):
     await asyncio.to_thread(requests.post,
@@ -48,52 +41,51 @@ async def download_handler(request: Request):
         if not all([chat_id, link, bot_token]):
             return JSONResponse(status_code=400, content={"error": "Missing fields."})
 
-        # Fetch file info
-        file_info = terabox.get_file_info(link)
+        # External API call
+        api_url = f"https://teraboxvideodl.pages.dev/api/?url={link}&server=1"
+        response = await asyncio.to_thread(requests.get, api_url)
+        data = response.json()
 
-        if "error" in file_info:
-            return JSONResponse(status_code=500, content={"error": file_info["error"]})
-        if not file_info.get("download_url"):
-            return JSONResponse(status_code=500, content={"error": "Download URL not found."})
+        if "download_url" not in data:
+            return JSONResponse(status_code=500, content={"error": "Failed to fetch download URL."})
 
-        print("File info:", file_info)
+        file_name = data.get("name", "terabox_video.mp4")
+        file_size = data.get("size", "Unknown size")
+        image = data.get("image")
+        download_url = data["download_url"]
 
-        # Notify user
         caption = (
             f"📩 *Link received!*\n🔗 [TeraBox Link]({link})\n"
-            f"📄 *{file_info['file_name']}*\n💾 *{file_info['file_size']}*"
+            f"📄 *{file_name}*\n💾 *{file_size}*"
         )
 
-        if file_info.get("thumbnail"):
-            await send_photo_message(bot_token, chat_id, file_info["thumbnail"], caption)
+        if image:
+            await send_photo_message(bot_token, chat_id, image, caption)
         else:
             await send_telegram_message(bot_token, chat_id, caption)
 
-        # Download
+        # Download to temp
         temp_dir = tempfile.gettempdir()
-        result = terabox.download(file_info, save_path=temp_dir)
+        file_path = os.path.join(temp_dir, file_name)
 
-        if "error" in result:
-            return JSONResponse(status_code=500, content={"error": result["error"]})
+        with open(file_path, "wb") as f:
+            file_response = await asyncio.to_thread(requests.get, download_url, stream=True)
+            for chunk in file_response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
 
-        file_path = result["file_path"]
+        # Send file to Telegram
+        with open(file_path, "rb") as f:
+            files = {"document": (file_name, f)}
+            data = {"chat_id": chat_id, "caption": caption}
+            await asyncio.to_thread(
+                requests.post,
+                f"https://api.telegram.org/bot{bot_token}/sendDocument",
+                files=files,
+                data=data
+            )
 
-        try:
-            with open(file_path, "rb") as f:
-                files = {"document": (file_info["file_name"], f)}
-                data = {"chat_id": chat_id, "caption": caption}
-                await asyncio.to_thread(
-                    requests.post,
-                    f"https://api.telegram.org/bot{bot_token}/sendDocument",
-                    files=files,
-                    data=data
-                )
-
-            return {"status": "success", "message": "File sent successfully"}
-
-        finally:
-            if os.path.exists(file_path):
-                os.remove(file_path)
+        return {"status": "success", "message": "File sent successfully"}
 
     except Exception as e:
         print("❌ Exception occurred:")
