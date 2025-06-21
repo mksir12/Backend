@@ -8,7 +8,6 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 app = FastAPI()
-active_downloads = set()
 
 async def send_message(bot_token, chat_id, text):
     resp = await asyncio.to_thread(
@@ -58,13 +57,7 @@ async def download_handler(request: Request):
         if not all([chat_id, link, bot_token]):
             return JSONResponse(status_code=400, content={"error": "Missing fields."})
 
-        if chat_id in active_downloads:
-            await send_message(bot_token, chat_id, "⚠️ *Please wait until your current download is complete.*")
-            return JSONResponse(status_code=429, content={"error": "Download already in progress for this user."})
-
-        active_downloads.add(chat_id)
-
-        # Fetch download URL
+        # Fetch download URL from Terabox API
         api_url = f"https://teraboxvideodl.pages.dev/api/?url={link}&server=1"
         response = await asyncio.to_thread(requests.get, api_url)
         data = response.json()
@@ -78,7 +71,7 @@ async def download_handler(request: Request):
         # Start progress message
         progress_message_id = await send_message(bot_token, chat_id, f"⬇️ *Downloading:* `{file_name}`")
 
-        # Begin download with progress
+        # Begin download
         temp_dir = tempfile.gettempdir()
         file_path = os.path.join(temp_dir, file_name)
 
@@ -114,7 +107,7 @@ async def download_handler(request: Request):
         # Final edit before upload
         await edit_message(bot_token, chat_id, progress_message_id, f"✅ *Download Complete!*\n\n*File:* `{file_name}`\n🔄 Uploading...")
 
-        # Upload file
+        # Upload to Telegram
         with open(file_path, "rb") as f:
             files = {"document": (file_name, f)}
             data = {"chat_id": chat_id, "caption": file_name}
@@ -125,7 +118,7 @@ async def download_handler(request: Request):
                 data=data
             )
 
-        # Delete the progress message after sending
+        # Delete progress message
         if progress_message_id:
             await delete_message(bot_token, chat_id, progress_message_id)
 
@@ -134,7 +127,3 @@ async def download_handler(request: Request):
     except Exception as e:
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e)})
-
-    finally:
-        if chat_id:
-            active_downloads.discard(chat_id)
