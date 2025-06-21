@@ -19,7 +19,8 @@ async def send_message(bot_token, chat_id, text):
             "parse_mode": "Markdown"
         }
     )
-    return resp.json().get("result", {}).get("message_id")
+    data = resp.json()
+    return data.get("result", {}).get("message_id")
 
 async def edit_message(bot_token, chat_id, message_id, new_text):
     await asyncio.to_thread(requests.post,
@@ -30,6 +31,12 @@ async def edit_message(bot_token, chat_id, message_id, new_text):
             "text": new_text,
             "parse_mode": "Markdown"
         }
+    )
+
+async def delete_message(bot_token, chat_id, message_id):
+    await asyncio.to_thread(requests.post,
+        f"https://api.telegram.org/bot{bot_token}/deleteMessage",
+        json={"chat_id": chat_id, "message_id": message_id}
     )
 
 @app.post("/api/download")
@@ -45,7 +52,7 @@ async def download_handler(request: Request):
             return JSONResponse(status_code=400, content={"error": "Missing fields."})
 
         if chat_id in active_downloads:
-            await send_message(bot_token, chat_id, "⚠️ *Please wait until your current download is complete.*")
+            await send_message(bot_token, chat_id, "⚠️ *Please wait until your current download finishes.*")
             return JSONResponse(status_code=429, content={"error": "Download already in progress for this user."})
 
         active_downloads.add(chat_id)
@@ -56,7 +63,7 @@ async def download_handler(request: Request):
 
         if "download_url" not in data:
             active_downloads.remove(chat_id)
-            return JSONResponse(status_code=500, content={"error": "Failed to fetch download URL."})
+            return JSONResponse(status_code=500, content={"error": "Invalid Terabox link or failed to fetch."})
 
         file_name = data.get("name", "video.mp4")
         file_size = int(data.get("size", 0))
@@ -67,60 +74,79 @@ async def download_handler(request: Request):
         if thumbnail:
             await asyncio.to_thread(requests.post,
                 f"https://api.telegram.org/bot{bot_token}/sendPhoto",
-                json={"chat_id": chat_id, "photo": thumbnail, "caption": caption, "parse_mode": "Markdown"}
+                json={
+                    "chat_id": chat_id,
+                    "photo": thumbnail,
+                    "caption": caption,
+                    "parse_mode": "Markdown"
+                }
             )
+
         progress_message_id = await send_message(bot_token, chat_id, f"⬇️ *Downloading:* `{file_name}`")
 
-        # Begin download with progress
+        # Start download
         temp_dir = tempfile.gettempdir()
         file_path = os.path.join(temp_dir, file_name)
 
         start_time = time.time()
         downloaded = 0
-        last_update = time.time()
+        last_update = start_time
 
         with open(file_path, "wb") as f:
-            file_response = await asyncio.to_thread(requests.get, download_url, stream=True)
-            total = int(file_response.headers.get('content-length', 0))
+            r = await asyncio.to_thread(requests.get, download_url, stream=True)
+            total = int(r.headers.get('content-length', file_size))
 
-            for chunk in file_response.iter_content(chunk_size=8192):
+            for chunk in r.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
                     downloaded += len(chunk)
 
-                    now = time.time()
-                    if now - last_update > 2:  # update every 2s
-                        percent = downloaded / total * 100
-                        speed = downloaded / (now - start_time)
-                        eta = (total - downloaded) / speed if speed else 0
-                        text = (
-                            f"⬇️ *Downloading:* `{file_name}`\n\n"
-                            f"🔴 [{'█' * int(percent / 5):<20}] {percent:.1f}%\n"
-                            f"💾 {downloaded/1024:.2f} KiB / {total/1024/1024:.2f} MiB\n\n"
-                            f"⚡ *Speed:* {speed/1024:.2f} KiB/s\n"
-                            f"⏱️ *ETA:* {int(eta)}s\n"
-                            f"👤 *User:* {user_name}"
-                        )
-                        await edit_message(bot_token, chat_id, progress_message_id, text)
-                        last_update = now
+                now = time.time()
+                if now - last_update > 2:
+                    percent = downloaded / total * 100
+                    speed = downloaded / (now - start_time)
+                    eta = (total - downloaded) / speed if speed else 0
+
+                    progress_bar = "█" * int(percent // 5)
+                    text = (
+                        f"⬇️ *Downloading:* `{file_name}`\n\n"
+                        f"🔴 [{progress_bar:<20}] {percent:.1f}%\n"
+                        f"💾 {downloaded/1024:.2f} KiB / {total/1024/1024:.2f} MiB\n"
+                        f"⚡ *Speed:* {speed/1024:.2f} KiB/s\n"
+                        f"⏱️ *ETA:* {int(eta)}s\n"
+                        f"👤 *User:* {user_name}"
+                    )
+
+                    await edit_message(bot_token, chat_id, progress_message_id, text)
+                    last_update = now
 
         await edit_message(bot_token, chat_id, progress_message_id, f"✅ *Download Complete!*\n\n*File:* `{file_name}`\n\n🔄 Preparing to upload...")
 
-        # Upload
+        # Upload as video
         with open(file_path, "rb") as f:
-            files = {"document": (file_name, f)}
-            data = {"chat_id": chat_id, "caption": f"{file_name}"}
+            files = {"video": (file_name, f)}
+            data = {
+                "chat_id": chat_id,
+                "caption": f"{file_name}",
+                "supports_streaming": True
+            }
             await asyncio.to_thread(
                 requests.post,
-                f"https://api.telegram.org/bot{bot_token}/sendDocument",
+                f"https://api.telegram.org/bot{bot_token}/sendVideo",
                 files=files,
                 data=data
             )
 
-        return {"status": "success", "message": "File uploaded"}
+        # Cleanup
+        await delete_message(bot_token, chat_id, progress_message_id)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+        return {"status": "success", "message": "Video sent"}
 
     except Exception as e:
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e)})
+
     finally:
         active_downloads.discard(chat_id)
