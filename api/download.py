@@ -111,12 +111,26 @@ async def download_handler(request: Request):
         if not all([chat_id, link, bot_token]):
             return JSONResponse(status_code=400, content={"error": "Missing required fields."})
 
-        # Notify user
-        await send_photo_message(bot_token, chat_id, info['thumbnail'], f"📩 *Link received!*\n⏳ Processing...\n🔗 [TeraBox Link]({link})")
-
-        # Get file info
+        # Get file info first
         info = get_file_info(link)
-        await send_telegram_message(bot_token, chat_id, f"⏳ *Downloading...*\n📄 *{info['name']}*\n💾 *{info['size_str']}*")
+
+        # Send thumbnail message
+        if info.get("thumbnail"):
+            await send_photo_message(
+                bot_token, chat_id, info["thumbnail"],
+                f"📩 *Link received!*\n⏳ Processing...\n🔗 [TeraBox Link]({link})"
+            )
+        else:
+            await send_telegram_message(
+                bot_token, chat_id,
+                f"📩 *Link received!*\n⏳ Processing...\n🔗 [TeraBox Link]({link})"
+            )
+
+        # Send downloading notice
+        await send_telegram_message(
+            bot_token, chat_id,
+            f"⏳ *Downloading...*\n📄 *{info['name']}*\n💾 *{info['size_str']}*"
+        )
 
         # Download file to temp
         temp_file = os.path.join(tempfile.gettempdir(), info["name"])
@@ -125,7 +139,7 @@ async def download_handler(request: Request):
             with open(temp_file, "wb") as f:
                 shutil.copyfileobj(r.raw, f)
 
-        # Send file
+        # Send document
         with open(temp_file, "rb") as f:
             files = {"document": (info["name"], f)}
             data = {
