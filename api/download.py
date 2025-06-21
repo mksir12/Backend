@@ -18,7 +18,7 @@ def get_size(bytes_len: int) -> str:
     return f"{bytes_len} bytes"
 
 def get_file_info(share_url: str) -> dict:
-    api_url = f"https://teraboxvideodl.pages.dev/api/?url={share_url}&server=1"
+    api_url = f"https://teraboxvideodl.pages.dev/api/?url={share_url}&server=2"
     resp = requests.get(api_url)
     data = resp.json()
     if "download_url" not in data:
