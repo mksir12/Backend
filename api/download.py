@@ -1,11 +1,12 @@
 # api/download.py
 # Backend for Terabox Downloader Bot
 # Credits: https://github.com/MN-BOTS
-# @MrMNTG @MusammilN
+# Updated by ChatGPT
 
 import os
-import tempfile      # ✅ Added missing import
+import tempfile
 import shutil
+import asyncio
 import requests
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -13,7 +14,8 @@ from urllib.parse import urlencode, urlparse, parse_qs
 
 app = FastAPI()
 
-COOKIE = "ndus=Y2f2tB1peHuigEgX5NpHQFeiY88k9XMojvuvxNVb"  # Replace with a **valid** Terabox ndus cookie
+# Replace with a valid Terabox 'ndus' cookie
+COOKIE = "ndus=Y2f2tB1peHuigEgX5NpHQFeiY88k9XMojvuvxNVb"
 
 HEADERS = {
     "Accept": "application/json, text/plain, */*",
@@ -38,6 +40,21 @@ DL_HEADERS = {
     "Cookie": COOKIE,
 }
 
+async def send_wait_message(bot_token: str, chat_id: str, filename: str, size_str: str, link: str):
+    text = (
+        f"⏳ *Downloading file...*\n"
+        f"📄 *{filename}*\n"
+        f"💾 *{size_str}*\n"
+        f"🔗 [Terabox Link]({link})"
+    )
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": True
+    }
+    await asyncio.to_thread(requests.post, f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
+
 def get_size(bytes_len: int) -> str:
     if bytes_len >= 1024 ** 3:
         return f"{bytes_len / 1024**3:.2f} GB"
@@ -50,7 +67,7 @@ def get_size(bytes_len: int) -> str:
 def find_between(text: str, start: str, end: str) -> str:
     try:
         return text.split(start, 1)[1].split(end, 1)[0]
-    except:
+    except Exception:
         return ""
 
 def get_file_info(share_url: str) -> dict:
@@ -99,6 +116,7 @@ def get_file_info(share_url: str) -> dict:
 
 @app.post("/api/download")
 async def download_handler(request: Request):
+    temp_file = None
     try:
         payload = await request.json()
         chat_id = payload.get("chat_id")
@@ -109,13 +127,18 @@ async def download_handler(request: Request):
             return JSONResponse(status_code=400, content={"error": "Missing required fields."})
 
         info = get_file_info(link)
-        temp_file = os.path.join(tempfile.gettempdir(), info["name"])
 
+        # Send wait message before downloading
+        await send_wait_message(bot_token, chat_id, info["name"], info["size_str"], link)
+
+        # Download the file
+        temp_file = os.path.join(tempfile.gettempdir(), info["name"])
         with requests.get(info["download_link"], headers=DL_HEADERS, stream=True) as resp:
             resp.raise_for_status()
             with open(temp_file, "wb") as out:
                 shutil.copyfileobj(resp.raw, out)
 
+        # Send file to Telegram
         send_url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
         with open(temp_file, "rb") as doc:
             files = {"document": (info["name"], doc)}
@@ -126,14 +149,16 @@ async def download_handler(request: Request):
             res = requests.post(send_url, files=files, data=msg_data)
             res.raise_for_status()
 
+        return {"status": "success", "message": "Sent to Telegram"}
+
     except Exception as e:
-        # include full traceback in logs
         import traceback
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e)})
 
     finally:
-        if 'temp_file' in locals() and os.path.exists(temp_file):
-            os.remove(temp_file)
-
-    return {"status": "success", "message": "Sent to Telegram"}
+        if temp_file and os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except Exception:
+                pass
