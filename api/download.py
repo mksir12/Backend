@@ -10,7 +10,6 @@ from urllib.parse import urlencode, urlparse, parse_qs
 
 app = FastAPI()
 
-# Replace with a valid cookie if needed
 COOKIE = "ndus=Y2f2tB1peHuigEgX5NpHQFeiY88k9XMojvuvxNVb"
 
 HEADERS = {
@@ -28,9 +27,9 @@ DL_HEADERS = {
 }
 
 def get_size(bytes_len: int) -> str:
-    if bytes_len >= 1024**3:
+    if bytes_len >= 1024 ** 3:
         return f"{bytes_len / 1024**3:.2f} GB"
-    if bytes_len >= 1024**2:
+    if bytes_len >= 1024 ** 2:
         return f"{bytes_len / 1024**2:.2f} MB"
     if bytes_len >= 1024:
         return f"{bytes_len / 1024:.2f} KB"
@@ -55,11 +54,11 @@ def get_file_info(share_url: str) -> dict:
 
     js_token = extract_token(r'fn\(["\']([A-F0-9]{64,})["\']\)', html)
     logid = extract_token(r'dp-logid=([a-zA-Z0-9]+)', html)
+    thumbnail = extract_token(r'<meta property="og:image" content="([^"]+)"', html)
 
     if not js_token or not logid:
         print("⚠️ js_token:", js_token)
         print("⚠️ logid:", logid)
-        print("⚠️ HTML:", html[:2000])
         raise ValueError("Failed to extract authentication tokens. Check HTML format.")
 
     params = {
@@ -69,24 +68,34 @@ def get_file_info(share_url: str) -> dict:
         "site_referer": final_url, "shorturl": surl, "root": "1,"
     }
 
-    info = requests.get(
-        "https://www.terabox.app/share/list?" + urlencode(params),
-        headers=HEADERS
-    ).json()
+    info = requests.get("https://www.terabox.app/share/list?" + urlencode(params), headers=HEADERS).json()
 
     if info.get("errno") or not info.get("list"):
         raise ValueError(f"API Error: {info.get('errmsg', 'Unknown error')}")
 
     file = info["list"][0]
     size = int(file.get("size", 0))
+
     return {
         "name": file.get("server_filename", "file"),
         "download_link": file.get("dlink", ""),
         "size_bytes": size,
-        "size_str": get_size(size)
+        "size_str": get_size(size),
+        "thumbnail": thumbnail
     }
 
-async def send_telegram_message(bot_token: str, chat_id: str, text: str):
+async def send_photo(bot_token: str, chat_id: str, photo_url: str, caption: str):
+    await asyncio.to_thread(requests.post,
+        f"https://api.telegram.org/bot{bot_token}/sendPhoto",
+        data={
+            "chat_id": chat_id,
+            "photo": photo_url,
+            "caption": caption,
+            "parse_mode": "Markdown"
+        }
+    )
+
+async def send_text(bot_token: str, chat_id: str, text: str):
     await asyncio.to_thread(requests.post,
         f"https://api.telegram.org/bot{bot_token}/sendMessage",
         json={
@@ -109,21 +118,27 @@ async def download_handler(request: Request):
         if not all([chat_id, link, bot_token]):
             return JSONResponse(status_code=400, content={"error": "Missing required fields."})
 
-        # Notify user
-        await send_telegram_message(bot_token, chat_id, f"📩 *Link received!*\n⏳ Processing...\n🔗 [TeraBox Link]({link})")
-
         # Get file info
         info = get_file_info(link)
-        await send_telegram_message(bot_token, chat_id, f"⏳ *Downloading...*\n📄 *{info['name']}*\n💾 *{info['size_str']}*")
 
-        # Download file to temp
+        # Send thumbnail preview
+        caption = f"📩 *Link received!*\n⏳ Processing...\n🔗 [TeraBox Link]({link})"
+        if info.get("thumbnail"):
+            await send_photo(bot_token, chat_id, info["thumbnail"], caption)
+        else:
+            await send_text(bot_token, chat_id, caption)
+
+        # Send downloading notice
+        await send_text(bot_token, chat_id, f"⏳ *Downloading...*\n📄 *{info['name']}*\n💾 *{info['size_str']}*")
+
+        # Download file
         temp_file = os.path.join(tempfile.gettempdir(), info["name"])
         with requests.get(info["download_link"], headers=DL_HEADERS, stream=True) as r:
             r.raise_for_status()
             with open(temp_file, "wb") as f:
                 shutil.copyfileobj(r.raw, f)
 
-        # Send file
+        # Send file to Telegram
         with open(temp_file, "rb") as f:
             files = {"document": (info["name"], f)}
             data = {
