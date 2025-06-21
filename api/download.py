@@ -1,7 +1,4 @@
 # api/download.py
-# Backend for Terabox Downloader Bot
-# Credits: https://github.com/MN-BOTS
-# Updated by ChatGPT
 
 import os
 import tempfile
@@ -14,7 +11,7 @@ from urllib.parse import urlencode, urlparse, parse_qs
 
 app = FastAPI()
 
-# Replace with a valid Terabox 'ndus' cookie
+# Replace with a valid 'ndus' cookie from Terabox
 COOKIE = "ndus=Y2f2tB1peHuigEgX5NpHQFeiY88k9XMojvuvxNVb"
 
 HEADERS = {
@@ -40,20 +37,18 @@ DL_HEADERS = {
     "Cookie": COOKIE,
 }
 
-async def send_wait_message(bot_token: str, chat_id: str, filename: str, size_str: str, link: str):
-    text = (
-        f"⏳ *Downloading file...*\n"
-        f"📄 *{filename}*\n"
-        f"💾 *{size_str}*\n"
-        f"🔗 [Terabox Link]({link})"
-    )
+async def send_telegram_message(bot_token: str, chat_id: str, text: str):
     payload = {
         "chat_id": chat_id,
         "text": text,
         "parse_mode": "Markdown",
         "disable_web_page_preview": True
     }
-    await asyncio.to_thread(requests.post, f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
+    await asyncio.to_thread(
+        requests.post,
+        f"https://api.telegram.org/bot{bot_token}/sendMessage",
+        json=payload
+    )
 
 def get_size(bytes_len: int) -> str:
     if bytes_len >= 1024 ** 3:
@@ -74,14 +69,19 @@ def get_file_info(share_url: str) -> dict:
     resp = requests.get(share_url, headers=HEADERS, allow_redirects=True)
     if resp.status_code != 200:
         raise ValueError(f"Failed to fetch share page ({resp.status_code})")
-    final_url = resp.url
 
+    final_url = resp.url
     parsed = urlparse(final_url)
     surl = parse_qs(parsed.query).get("surl", [None])[0]
     if not surl:
         raise ValueError("Invalid share URL (missing surl)")
 
     html = requests.get(final_url, headers=HEADERS).text
+
+    # DEBUG: Save HTML to debug issues
+    with open("/tmp/terabox_debug.html", "w", encoding="utf-8") as f:
+        f.write(html)
+
     js_token = find_between(html, 'fn%28%22', '%22%29')
     logid = find_between(html, 'dp-logid=', '&')
     bdstoken = find_between(html, 'bdstoken":"', '"')
@@ -126,19 +126,23 @@ async def download_handler(request: Request):
         if not chat_id or not link or not bot_token:
             return JSONResponse(status_code=400, content={"error": "Missing required fields."})
 
+        # Send immediate acknowledgment
+        await send_telegram_message(bot_token, chat_id, f"📩 *Received your link!*\n⏳ Processing...\n🔗 [Terabox]({link})")
+
+        # Extract file info
         info = get_file_info(link)
 
-        # Send wait message before downloading
-        await send_wait_message(bot_token, chat_id, info["name"], info["size_str"], link)
+        # Inform user download is starting
+        await send_telegram_message(bot_token, chat_id, f"⏳ *Downloading...*\n📄 *{info['name']}*\n💾 *{info['size_str']}*")
 
-        # Download the file
+        # Download file
         temp_file = os.path.join(tempfile.gettempdir(), info["name"])
         with requests.get(info["download_link"], headers=DL_HEADERS, stream=True) as resp:
             resp.raise_for_status()
             with open(temp_file, "wb") as out:
                 shutil.copyfileobj(resp.raw, out)
 
-        # Send file to Telegram
+        # Send document to Telegram
         send_url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
         with open(temp_file, "rb") as doc:
             files = {"document": (info["name"], doc)}
