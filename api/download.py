@@ -1,99 +1,89 @@
 # api/download.py
 
 import os
-import tempfile
 import shutil
+import tempfile
 import asyncio
 import requests
+import re
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from urllib.parse import urlencode, urlparse, parse_qs
 
 app = FastAPI()
 
-# Replace with a valid 'ndus' cookie from Terabox
+# Replace with your valid ndus cookie
 COOKIE = "ndus=Y2f2tB1peHuigEgX5NpHQFeiY88k9XMojvuvxNVb"
 
 HEADERS = {
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Accept-Language": "en-US,en;q=0.9,hi;q=0.8",
-    "Connection": "keep-alive",
-    "DNT": "1",
-    "Host": "www.terabox.app",
-    "Upgrade-Insecure-Requests": "1",
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                   "AppleWebKit/537.36 (KHTML, like Gecko) "
-                  "Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0",
+                  "Chrome/135.0.0.0 Safari/537.36",
     "Cookie": COOKIE,
 }
 
 DL_HEADERS = {
     "User-Agent": HEADERS["User-Agent"],
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.5",
     "Referer": "https://www.terabox.com/",
     "Connection": "keep-alive",
     "Cookie": COOKIE,
 }
 
 async def send_telegram_message(bot_token: str, chat_id: str, text: str):
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "Markdown",
-        "disable_web_page_preview": True
-    }
-    await asyncio.to_thread(
-        requests.post,
+    await asyncio.to_thread(requests.post,
         f"https://api.telegram.org/bot{bot_token}/sendMessage",
-        json=payload
+        json={
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True
+        }
     )
 
 def get_size(bytes_len: int) -> str:
-    if bytes_len >= 1024 ** 3:
+    if bytes_len >= 1024**3:
         return f"{bytes_len / 1024**3:.2f} GB"
-    if bytes_len >= 1024 ** 2:
+    if bytes_len >= 1024**2:
         return f"{bytes_len / 1024**2:.2f} MB"
     if bytes_len >= 1024:
         return f"{bytes_len / 1024:.2f} KB"
     return f"{bytes_len} bytes"
 
-def find_between(text: str, start: str, end: str) -> str:
-    try:
-        return text.split(start, 1)[1].split(end, 1)[0]
-    except Exception:
-        return ""
+def extract_token(pattern: str, text: str) -> str:
+    match = re.search(pattern, text)
+    return match.group(1) if match else None
 
 def get_file_info(share_url: str) -> dict:
     resp = requests.get(share_url, headers=HEADERS, allow_redirects=True)
     if resp.status_code != 200:
-        raise ValueError(f"Failed to fetch share page ({resp.status_code})")
+        raise ValueError(f"Failed to fetch page ({resp.status_code})")
 
     final_url = resp.url
     parsed = urlparse(final_url)
     surl = parse_qs(parsed.query).get("surl", [None])[0]
     if not surl:
-        raise ValueError("Invalid share URL (missing surl)")
+        raise ValueError("Invalid URL: 'surl' not found.")
 
     html = requests.get(final_url, headers=HEADERS).text
 
-    # DEBUG: Save HTML to debug issues
-    with open("/tmp/terabox_debug.html", "w", encoding="utf-8") as f:
-        f.write(html)
-
-    js_token = find_between(html, 'fn%28%22', '%22%29')
-    logid = find_between(html, 'dp-logid=', '&')
-    bdstoken = find_between(html, 'bdstoken":"', '"')
+    # ✅ Regex-based robust token extraction
+    js_token = extract_token(r'"jsToken"\s*:\s*"([^"]+)"', html)
+    logid = extract_token(r'dp-logid=([a-zA-Z0-9]+)', html)
+    bdstoken = extract_token(r'"bdstoken"\s*:\s*"([^"]+)"', html)
 
     if not all([js_token, logid, bdstoken]):
-        raise ValueError("Failed to extract authentication tokens")
+        print("⚠️ js_token:", js_token)
+        print("⚠️ logid:", logid)
+        print("⚠️ bdstoken:", bdstoken)
+        print("⚠️ Partial HTML (2000 chars):", html[:2000])
+        raise ValueError("Failed to extract authentication tokens. Check Terabox page format.")
 
     params = {
         "app_id": "250528", "web": "1", "channel": "dubox",
         "clienttype": "0", "jsToken": js_token, "dp-logid": logid,
         "page": "1", "num": "20", "by": "name", "order": "asc",
-        "site_referer": final_url, "shorturl": surl, "root": "1,",
+        "site_referer": final_url, "shorturl": surl, "root": "1,"
     }
 
     info = requests.get(
@@ -102,13 +92,12 @@ def get_file_info(share_url: str) -> dict:
     ).json()
 
     if info.get("errno") or not info.get("list"):
-        errmsg = info.get("errmsg", "Unknown error")
-        raise ValueError(f"List API error: {errmsg}")
+        raise ValueError(f"API Error: {info.get('errmsg', 'Unknown error')}")
 
     file = info["list"][0]
     size = int(file.get("size", 0))
     return {
-        "name": file.get("server_filename", "download"),
+        "name": file.get("server_filename", "file"),
         "download_link": file.get("dlink", ""),
         "size_bytes": size,
         "size_str": get_size(size)
@@ -123,35 +112,33 @@ async def download_handler(request: Request):
         link = payload.get("link")
         bot_token = payload.get("bot_token")
 
-        if not chat_id or not link or not bot_token:
-            return JSONResponse(status_code=400, content={"error": "Missing required fields."})
+        if not all([chat_id, link, bot_token]):
+            return JSONResponse(status_code=400, content={"error": "Missing chat_id, link or bot_token"})
 
-        # Send immediate acknowledgment
-        await send_telegram_message(bot_token, chat_id, f"📩 *Received your link!*\n⏳ Processing...\n🔗 [Terabox]({link})")
+        # Step 1: Notify user
+        await send_telegram_message(bot_token, chat_id, f"📩 *Received your link!*\n⏳ Parsing...\n🔗 [Link]({link})")
 
-        # Extract file info
+        # Step 2: Extract file info
         info = get_file_info(link)
-
-        # Inform user download is starting
         await send_telegram_message(bot_token, chat_id, f"⏳ *Downloading...*\n📄 *{info['name']}*\n💾 *{info['size_str']}*")
 
-        # Download file
+        # Step 3: Download file
         temp_file = os.path.join(tempfile.gettempdir(), info["name"])
         with requests.get(info["download_link"], headers=DL_HEADERS, stream=True) as resp:
             resp.raise_for_status()
-            with open(temp_file, "wb") as out:
-                shutil.copyfileobj(resp.raw, out)
+            with open(temp_file, "wb") as f:
+                shutil.copyfileobj(resp.raw, f)
 
-        # Send document to Telegram
-        send_url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
-        with open(temp_file, "rb") as doc:
-            files = {"document": (info["name"], doc)}
-            msg_data = {
+        # Step 4: Send file
+        with open(temp_file, "rb") as f:
+            files = {"document": (info["name"], f)}
+            data = {
                 "chat_id": chat_id,
                 "caption": f"📄 {info['name']}\n💾 {info['size_str']}\n🔗 {link}"
             }
-            res = requests.post(send_url, files=files, data=msg_data)
-            res.raise_for_status()
+            send_url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
+            r = requests.post(send_url, files=files, data=data)
+            r.raise_for_status()
 
         return {"status": "success", "message": "Sent to Telegram"}
 
@@ -164,5 +151,5 @@ async def download_handler(request: Request):
         if temp_file and os.path.exists(temp_file):
             try:
                 os.remove(temp_file)
-            except Exception:
+            except:
                 pass
