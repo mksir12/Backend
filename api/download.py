@@ -61,10 +61,12 @@ def get_file_info(share_url: str) -> dict:
 
     js_token = extract_token(r'fn%28%22([A-F0-9]{64,})%22%29', html)
     logid = extract_token(r'dp-logid=([a-zA-Z0-9]+)&', html)
+    bdstoken = extract_token(r'"bdstoken":"([^"]+)"', html)  # <-- added
 
     if not js_token or not logid:
         print("⚠️ js_token:", js_token)
         print("⚠️ logid:", logid)
+        print("⚠️ bdstoken:", bdstoken)  # optional debug
         print("⚠️ HTML:", html[:2000])
         raise ValueError("Failed to extract authentication tokens. Check HTML format.")
 
@@ -93,7 +95,8 @@ def get_file_info(share_url: str) -> dict:
         "download_link": real_dlink,
         "size_bytes": size,
         "size_str": get_size(size),
-        "thumbnail": thumb_url
+        "thumbnail": thumb_url,
+        "bdstoken": bdstoken  # included in return dict (in case needed later)
     }
 
 async def send_photo_message(bot_token: str, chat_id: str, photo: str, caption: str):
