@@ -54,8 +54,9 @@ def get_file_info(share_url: str) -> dict:
     html = requests.get(final_url, headers=HEADERS).text
     thumb_url = extract_token(r'<meta property="og:image" content="([^"]+)"', html)
 
-    js_token = extract_token(r'fn\(["\']([A-F0-9]{64,})["\']\)', html)
-    logid = extract_token(r'dp-logid=([a-zA-Z0-9]+)', html)
+    js_token = extract_token(r'fn%28%22([A-F0-9]{64,})%22%29', html)
+    logid = extract_token(r'dp-logid=([a-zA-Z0-9]+)&', html)
+    bdstoken = extract_token(r'"bdstoken":"([^"]+)"', html)  # Optional: only if needed
 
     if not js_token or not logid:
         print("⚠️ js_token:", js_token)
