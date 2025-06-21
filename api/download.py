@@ -9,7 +9,7 @@ import requests
 app = FastAPI()
 
 # Replace with your cookie (format: "lang=...; ndus=...")
-COOKIE = os.getenv("TERABOX_COOKIE", "lang=en; ndus=YOUR_NDUS_COOKIE")
+COOKIE = os.getenv("TERABOX_COOKIE", "lang=en; ndus=Y2f2tB1peHuigEgX5NpHQFeiY88k9XMojvuvxNVb")
 terabox = TeraboxDL(COOKIE)
 
 async def send_photo_message(bot_token: str, chat_id: str, photo: str, caption: str):
