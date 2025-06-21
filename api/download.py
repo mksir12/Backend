@@ -57,7 +57,7 @@ async def download_handler(request: Request):
         if not all([chat_id, link, bot_token]):
             return JSONResponse(status_code=400, content={"error": "Missing fields."})
 
-        # Fetch download URL from Terabox API
+        # Fetch download URL
         api_url = f"https://teraboxvideodl.pages.dev/api/?url={link}&server=1"
         response = await asyncio.to_thread(requests.get, api_url)
         data = response.json()
@@ -71,7 +71,7 @@ async def download_handler(request: Request):
         # Start progress message
         progress_message_id = await send_message(bot_token, chat_id, f"⬇️ *Downloading:* `{file_name}`")
 
-        # Begin download
+        # Download file
         temp_dir = tempfile.gettempdir()
         file_path = os.path.join(temp_dir, file_name)
 
@@ -83,7 +83,7 @@ async def download_handler(request: Request):
             file_response = await asyncio.to_thread(requests.get, download_url, stream=True)
             total = int(file_response.headers.get('content-length', 0))
 
-            for chunk in file_response.iter_content(chunk_size=65536):  # 64KB chunks
+            for chunk in file_response.iter_content(chunk_size=65536):  # 64KB
                 if chunk:
                     f.write(chunk)
                     downloaded += len(chunk)
@@ -104,7 +104,7 @@ async def download_handler(request: Request):
                         await edit_message(bot_token, chat_id, progress_message_id, text)
                         last_update = now
 
-        # Final edit before upload
+        # Final edit
         await edit_message(bot_token, chat_id, progress_message_id, f"✅ *Download Complete!*\n\n*File:* `{file_name}`\n🔄 Uploading...")
 
         # Upload to Telegram
@@ -118,7 +118,7 @@ async def download_handler(request: Request):
                 data=data
             )
 
-        # Delete progress message
+        # Clean up progress message
         if progress_message_id:
             await delete_message(bot_token, chat_id, progress_message_id)
 
