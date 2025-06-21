@@ -1,16 +1,17 @@
 import os
+import re
 import shutil
 import tempfile
 import asyncio
 import requests
-import re
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from urllib.parse import urlencode, urlparse, parse_qs
 
 app = FastAPI()
 
-COOKIE = "ndus=Y2f2tB1peHuigEgX5NpHQFeiY88k9XMojvuvxNVb"
+# Replace with your valid cookie
+COOKIE = os.environ.get("TERABOX_COOKIE", "ndus=Y2f2tB1peHuigEgX5NpHQFeiY88k9XMojvuvxNVb")
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -27,9 +28,9 @@ DL_HEADERS = {
 }
 
 def get_size(bytes_len: int) -> str:
-    if bytes_len >= 1024 ** 3:
+    if bytes_len >= 1024**3:
         return f"{bytes_len / 1024**3:.2f} GB"
-    if bytes_len >= 1024 ** 2:
+    if bytes_len >= 1024**2:
         return f"{bytes_len / 1024**2:.2f} MB"
     if bytes_len >= 1024:
         return f"{bytes_len / 1024:.2f} KB"
@@ -37,6 +38,10 @@ def get_size(bytes_len: int) -> str:
 
 def extract_token(pattern: str, text: str) -> str:
     match = re.search(pattern, text)
+    return match.group(1) if match else None
+
+def extract_thumbnail(html: str) -> str:
+    match = re.search(r'<meta property="og:image" content="([^"]+)"', html)
     return match.group(1) if match else None
 
 def get_file_info(share_url: str) -> dict:
@@ -51,14 +56,11 @@ def get_file_info(share_url: str) -> dict:
         raise ValueError("Invalid URL: 'surl' not found.")
 
     html = requests.get(final_url, headers=HEADERS).text
-
     js_token = extract_token(r'fn\(["\']([A-F0-9]{64,})["\']\)', html)
     logid = extract_token(r'dp-logid=([a-zA-Z0-9]+)', html)
-    thumbnail = extract_token(r'<meta property="og:image" content="([^"]+)"', html)
+    thumb_url = extract_thumbnail(html)
 
     if not js_token or not logid:
-        print("⚠️ js_token:", js_token)
-        print("⚠️ logid:", logid)
         raise ValueError("Failed to extract authentication tokens. Check HTML format.")
 
     params = {
@@ -75,36 +77,22 @@ def get_file_info(share_url: str) -> dict:
 
     file = info["list"][0]
     size = int(file.get("size", 0))
-
     return {
         "name": file.get("server_filename", "file"),
         "download_link": file.get("dlink", ""),
         "size_bytes": size,
         "size_str": get_size(size),
-        "thumbnail": thumbnail
+        "thumb_url": thumb_url
     }
 
-async def send_photo(bot_token: str, chat_id: str, photo_url: str, caption: str):
-    await asyncio.to_thread(requests.post,
-        f"https://api.telegram.org/bot{bot_token}/sendPhoto",
-        data={
-            "chat_id": chat_id,
-            "photo": photo_url,
-            "caption": caption,
-            "parse_mode": "Markdown"
-        }
-    )
-
-async def send_text(bot_token: str, chat_id: str, text: str):
-    await asyncio.to_thread(requests.post,
-        f"https://api.telegram.org/bot{bot_token}/sendMessage",
-        json={
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "Markdown",
-            "disable_web_page_preview": True
-        }
-    )
+async def send_telegram_message(bot_token: str, chat_id: str, text: str, thumb_url: str = None):
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": not bool(thumb_url)
+    }
+    await asyncio.to_thread(requests.post, f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
 
 @app.post("/api/download")
 async def download_handler(request: Request):
@@ -118,35 +106,28 @@ async def download_handler(request: Request):
         if not all([chat_id, link, bot_token]):
             return JSONResponse(status_code=400, content={"error": "Missing required fields."})
 
-        # Get file info
         info = get_file_info(link)
 
-        # Send thumbnail preview
-        caption = f"📩 *Link received!*\n⏳ Processing...\n🔗 [TeraBox Link]({link})"
-        if info.get("thumbnail"):
-            await send_photo(bot_token, chat_id, info["thumbnail"], caption)
-        else:
-            await send_text(bot_token, chat_id, caption)
-
-        # Send downloading notice
-        await send_text(bot_token, chat_id, f"⏳ *Downloading...*\n📄 *{info['name']}*\n💾 *{info['size_str']}*")
+        # Notify user with preview
+        msg = f"\ud83d\udce9 *Link received!*\n\u23f3 Processing...\n\ud83d\udd17 [TeraBox Link]({link})"
+        await send_telegram_message(bot_token, chat_id, msg, thumb_url=info["thumb_url"])
 
         # Download file
+        await send_telegram_message(bot_token, chat_id, f"\u23f3 *Downloading...*\n\ud83d\udcc4 *{info['name']}*\n\ud83d\udcc0 *{info['size_str']}*")
         temp_file = os.path.join(tempfile.gettempdir(), info["name"])
+
         with requests.get(info["download_link"], headers=DL_HEADERS, stream=True) as r:
             r.raise_for_status()
             with open(temp_file, "wb") as f:
                 shutil.copyfileobj(r.raw, f)
 
-        # Send file to Telegram
         with open(temp_file, "rb") as f:
             files = {"document": (info["name"], f)}
             data = {
                 "chat_id": chat_id,
-                "caption": f"📄 {info['name']}\n💾 {info['size_str']}\n🔗 {link}"
+                "caption": f"\ud83d\udcc4 {info['name']}\n\ud83d\udcc0 {info['size_str']}\n\ud83d\udd17 {link}"
             }
-            send_url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
-            requests.post(send_url, files=files, data=data)
+            requests.post(f"https://api.telegram.org/bot{bot_token}/sendDocument", files=files, data=data)
 
         return {"status": "success", "message": "File sent to Telegram"}
 
