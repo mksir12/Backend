@@ -88,14 +88,14 @@ def get_file_info(share_url: str) -> dict:
     "thumbnail": thumb_url
   }
 
-async def send_telegram_message(bot_token: str, chat_id: str, text: str):
+async def send_photo_message(bot_token: str, chat_id: str, photo: str, caption: str):
     await asyncio.to_thread(requests.post,
-        f"https://api.telegram.org/bot{bot_token}/sendMessage",
+        f"https://api.telegram.org/bot{bot_token}/sendPhoto",
         json={
             "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "Markdown",
-            "disable_web_page_preview": True
+            "photo": photo,
+            "caption": caption,
+            "parse_mode": "Markdown"
         }
     )
 
@@ -112,7 +112,7 @@ async def download_handler(request: Request):
             return JSONResponse(status_code=400, content={"error": "Missing required fields."})
 
         # Notify user
-        await send_telegram_message(bot_token, chat_id, f"📩 *Link received!*\n⏳ Processing...\n🔗 [TeraBox Link]({link})")
+        await send_photo_message(bot_token, chat_id, info['thumbnail'], f"📩 *Link received!*\n⏳ Processing...\n🔗 [TeraBox Link]({link})")
 
         # Get file info
         info = get_file_info(link)
