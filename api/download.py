@@ -1,5 +1,3 @@
-# api/download.py
-
 import os
 import shutil
 import tempfile
@@ -12,7 +10,7 @@ from urllib.parse import urlencode, urlparse, parse_qs
 
 app = FastAPI()
 
-# Replace with your valid ndus cookie
+# Replace with a valid cookie if needed
 COOKIE = "ndus=Y2f2tB1peHuigEgX5NpHQFeiY88k9XMojvuvxNVb"
 
 HEADERS = {
@@ -24,22 +22,10 @@ HEADERS = {
 
 DL_HEADERS = {
     "User-Agent": HEADERS["User-Agent"],
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
     "Referer": "https://www.terabox.com/",
     "Connection": "keep-alive",
     "Cookie": COOKIE,
 }
-
-async def send_telegram_message(bot_token: str, chat_id: str, text: str):
-    await asyncio.to_thread(requests.post,
-        f"https://api.telegram.org/bot{bot_token}/sendMessage",
-        json={
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "Markdown",
-            "disable_web_page_preview": True
-        }
-    )
 
 def get_size(bytes_len: int) -> str:
     if bytes_len >= 1024**3:
@@ -57,7 +43,7 @@ def extract_token(pattern: str, text: str) -> str:
 def get_file_info(share_url: str) -> dict:
     resp = requests.get(share_url, headers=HEADERS, allow_redirects=True)
     if resp.status_code != 200:
-        raise ValueError(f"Failed to fetch page ({resp.status_code})")
+        raise ValueError(f"Failed to fetch share page ({resp.status_code})")
 
     final_url = resp.url
     parsed = urlparse(final_url)
@@ -67,17 +53,14 @@ def get_file_info(share_url: str) -> dict:
 
     html = requests.get(final_url, headers=HEADERS).text
 
-    # ✅ Regex-based robust token extraction
-    js_token = extract_token(r'"jsToken"\s*:\s*"([^"]+)"', html)
+    js_token = extract_token(r'fn\(["\']([A-F0-9]{64,})["\']\)', html)
     logid = extract_token(r'dp-logid=([a-zA-Z0-9]+)', html)
-    bdstoken = extract_token(r'"bdstoken"\s*:\s*"([^"]+)"', html)
 
-    if not all([js_token, logid, bdstoken]):
+    if not js_token or not logid:
         print("⚠️ js_token:", js_token)
         print("⚠️ logid:", logid)
-        print("⚠️ bdstoken:", bdstoken)
-        print("⚠️ Partial HTML (2000 chars):", html[:2000])
-        raise ValueError("Failed to extract authentication tokens. Check Terabox page format.")
+        print("⚠️ HTML:", html[:2000])
+        raise ValueError("Failed to extract authentication tokens. Check HTML format.")
 
     params = {
         "app_id": "250528", "web": "1", "channel": "dubox",
@@ -103,6 +86,17 @@ def get_file_info(share_url: str) -> dict:
         "size_str": get_size(size)
     }
 
+async def send_telegram_message(bot_token: str, chat_id: str, text: str):
+    await asyncio.to_thread(requests.post,
+        f"https://api.telegram.org/bot{bot_token}/sendMessage",
+        json={
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True
+        }
+    )
+
 @app.post("/api/download")
 async def download_handler(request: Request):
     temp_file = None
@@ -113,23 +107,23 @@ async def download_handler(request: Request):
         bot_token = payload.get("bot_token")
 
         if not all([chat_id, link, bot_token]):
-            return JSONResponse(status_code=400, content={"error": "Missing chat_id, link or bot_token"})
+            return JSONResponse(status_code=400, content={"error": "Missing required fields."})
 
-        # Step 1: Notify user
-        await send_telegram_message(bot_token, chat_id, f"📩 *Received your link!*\n⏳ Parsing...\n🔗 [Link]({link})")
+        # Notify user
+        await send_telegram_message(bot_token, chat_id, f"📩 *Link received!*\n⏳ Processing...\n🔗 [TeraBox Link]({link})")
 
-        # Step 2: Extract file info
+        # Get file info
         info = get_file_info(link)
         await send_telegram_message(bot_token, chat_id, f"⏳ *Downloading...*\n📄 *{info['name']}*\n💾 *{info['size_str']}*")
 
-        # Step 3: Download file
+        # Download file to temp
         temp_file = os.path.join(tempfile.gettempdir(), info["name"])
-        with requests.get(info["download_link"], headers=DL_HEADERS, stream=True) as resp:
-            resp.raise_for_status()
+        with requests.get(info["download_link"], headers=DL_HEADERS, stream=True) as r:
+            r.raise_for_status()
             with open(temp_file, "wb") as f:
-                shutil.copyfileobj(resp.raw, f)
+                shutil.copyfileobj(r.raw, f)
 
-        # Step 4: Send file
+        # Send file
         with open(temp_file, "rb") as f:
             files = {"document": (info["name"], f)}
             data = {
@@ -137,10 +131,9 @@ async def download_handler(request: Request):
                 "caption": f"📄 {info['name']}\n💾 {info['size_str']}\n🔗 {link}"
             }
             send_url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
-            r = requests.post(send_url, files=files, data=data)
-            r.raise_for_status()
+            requests.post(send_url, files=files, data=data)
 
-        return {"status": "success", "message": "Sent to Telegram"}
+        return {"status": "success", "message": "File sent to Telegram"}
 
     except Exception as e:
         import traceback
