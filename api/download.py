@@ -91,6 +91,8 @@ async def download_handler(request: Request):
         try:
             await asyncio.wait_for(download_file(info["download_link"], temp_file), timeout=50)  # Set timeout to 50 seconds
         except asyncio.TimeoutError:
+            await send_message(bot_token, chat_id, "⏳ *Download timed out. Retrying...*")
+            # Retry logic can be added here if needed
             return JSONResponse(status_code=500, content={"error": "Download timed out."})
 
         # Send document
