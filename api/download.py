@@ -18,19 +18,20 @@ def get_size(bytes_len: int) -> str:
     return f"{bytes_len} bytes"
 
 def get_file_info(share_url: str) -> dict:
-    api_url = f"https://teraboxvideodl.pages.dev/api/?url={share_url}&server=2"
-    resp = requests.get(api_url)
-    data = resp.json()
-    if "download_url" not in data:
-        raise ValueError("Invalid API response: no download_url")
-    size_bytes = int(data.get("size", 0))
-    return {
-        "name": data.get("name", "file.mp4"),
-        "download_link": data["download_url"],
-        "size_bytes": size_bytes,
-        "size_str": get_size(size_bytes),
-        "thumbnail": data.get("image")
-    }
+    for server in [2, 3, 1]:  # Try servers 2, 3, and 1
+        api_url = f"https://teraboxvideodl.pages.dev/api/?url={share_url}&server={server}"
+        resp = requests.get(api_url)
+        data = resp.json()
+        if "download_url" in data:
+            size_bytes = int(data.get("size", 0))
+            return {
+                "name": data.get("name", "file.mp4"),
+                "download_link": data["download_url"],
+                "size_bytes": size_bytes,
+                "size_str": get_size(size_bytes),
+                "thumbnail": data.get("image")
+            }
+    raise ValueError("Invalid API response: no download_url from all servers")
 
 async def send_photo(bot_token: str, chat_id: str, photo: str, caption: str) -> int:
     response = await asyncio.to_thread(requests.post,
@@ -61,6 +62,7 @@ def delete_message(bot_token: str, chat_id: str, message_id: int):
 @app.post("/api/download")
 async def download_handler(request: Request):
     temp_file = None
+    message_id = None  # Initialize message_id to avoid spamming
     try:
         payload = await request.json()
         chat_id = payload.get("chat_id")
@@ -111,6 +113,8 @@ async def download_handler(request: Request):
     except Exception as e:
         import traceback
         traceback.print_exc()
+        if message_id:  # Only send error message if a message was sent
+            await send_message(bot_token, chat_id, f"❌ *Error occurred:* {str(e)}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
     finally:
