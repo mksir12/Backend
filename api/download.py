@@ -49,7 +49,7 @@ async def send_message(bot_token: str, chat_id: str, text: str) -> int:
 
 async def download_file(url: str, dest_path: str):
     try:
-        response = await asyncio.to_thread(requests.get, url, stream=True, timeout=15)
+        response = await asyncio.to_thread(requests.get, url, stream=True, timeout=55)
         response.raise_for_status()
         with open(dest_path, "wb") as f:
             shutil.copyfileobj(response.raw, f)
@@ -91,7 +91,7 @@ async def download_handler(request: Request):
 
         download_task = asyncio.create_task(download_file(info["download_link"], temp_file))
         try:
-            await asyncio.wait_for(download_task, timeout=25)
+            await asyncio.wait_for(download_task, timeout=55)
         except asyncio.TimeoutError:
             download_task.cancel()
             await send_message(bot_token, chat_id, "⚠️ *Download timed out. Please try a smaller file.*")
