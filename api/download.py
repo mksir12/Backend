@@ -67,12 +67,14 @@ def delete_message(bot_token: str, chat_id: str, message_id: int):
 @app.post("/api/download")
 async def download_handler(request: Request):
     temp_file = None
-    message_id = None
+    preview_message_id = None
+    start_message_id = None
     try:
         payload = await request.json()
         chat_id = payload.get("chat_id")
         link = payload.get("link")
         bot_token = payload.get("bot_token")
+        start_message_id = payload.get("start_message_id")  # ✅ New: handle "📥 Download started..." msg
 
         if not all([chat_id, link, bot_token]):
             return JSONResponse(status_code=400, content={"error": "Missing fields."})
@@ -80,7 +82,7 @@ async def download_handler(request: Request):
         info = get_file_info(link)
 
         preview_text = f"📩 *Link received!*\n⏳ *Processing...*\n🔗 *[TeraBox Link]({link})*"
-        message_id = await (
+        preview_message_id = await (
             send_photo(bot_token, chat_id, info["thumbnail"], preview_text)
             if info["thumbnail"] else send_message(bot_token, chat_id, preview_text)
         )
@@ -93,8 +95,10 @@ async def download_handler(request: Request):
         except asyncio.TimeoutError:
             download_task.cancel()
             await send_message(bot_token, chat_id, "⚠️ *Download timed out. Please try a smaller file.*")
-            if message_id:
-                delete_message(bot_token, chat_id, message_id)
+            if preview_message_id:
+                delete_message(bot_token, chat_id, preview_message_id)
+            if start_message_id:
+                delete_message(bot_token, chat_id, start_message_id)
             return JSONResponse(status_code=504, content={"error": "Download timed out"})
 
         with open(temp_file, "rb") as f:
@@ -106,15 +110,19 @@ async def download_handler(request: Request):
             }
             requests.post(f"https://api.telegram.org/bot{bot_token}/sendDocument", files=files, data=data)
 
-        if message_id:
-            delete_message(bot_token, chat_id, message_id)
+        if preview_message_id:
+            delete_message(bot_token, chat_id, preview_message_id)
+        if start_message_id:
+            delete_message(bot_token, chat_id, start_message_id)
 
         return {"status": "success", "message": "File sent to Telegram"}
 
     except Exception as e:
-        if message_id:
+        if preview_message_id:
             await send_message(bot_token, chat_id, f"❌ *Error occurred:* {str(e)}")
-            delete_message(bot_token, chat_id, message_id)
+            delete_message(bot_token, chat_id, preview_message_id)
+        if start_message_id:
+            delete_message(bot_token, chat_id, start_message_id)
         return JSONResponse(status_code=500, content={"error": str(e)})
 
     finally:
