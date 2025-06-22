@@ -49,8 +49,8 @@ async def send_message(bot_token: str, chat_id: str, text: str) -> int:
     data = response.json()
     return data.get("result", {}).get("message_id")
 
-def download_file(url: str, dest_path: str):
-    response = requests.get(url, stream=True)
+async def download_file(url: str, dest_path: str):
+    response = await asyncio.to_thread(requests.get, url, stream=True)
     response.raise_for_status()
     with open(dest_path, "wb") as f:
         shutil.copyfileobj(response.raw, f)
@@ -86,9 +86,12 @@ async def download_handler(request: Request):
         else:
             message_id = await send_message(bot_token, chat_id, message)
 
-        # Download file
+        # Download file with a timeout
         temp_file = os.path.join(tempfile.gettempdir(), info["name"])
-        download_file(info["download_link"], temp_file)
+        try:
+            await asyncio.wait_for(download_file(info["download_link"], temp_file), timeout=50)  # Set timeout to 50 seconds
+        except asyncio.TimeoutError:
+            return JSONResponse(status_code=500, content={"error": "Download timed out."})
 
         # Send document
         with open(temp_file, "rb") as f:
