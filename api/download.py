@@ -75,6 +75,7 @@ async def download_handler(request: Request):
     temp_file = None
     preview_message_id = None
     start_message_id = None
+    download_task = None
 
     try:
         payload = await request.json()
@@ -86,32 +87,40 @@ async def download_handler(request: Request):
         if not all([chat_id, link, bot_token]):
             return JSONResponse(status_code=400, content={"error": "Missing fields."})
 
-        # Step 1: Fetch metadata
+        # Step 1: Get file info (blocking)
         info = get_file_info(link)
 
-        # Step 2: Notify user with preview
+        # Step 2: Send processing message
         preview_text = f"📩 *Link received!*\n⏳ *Processing...*\n🔗 *[TeraBox Link]({link})*"
         preview_message_id = await (
             send_photo(bot_token, chat_id, info["thumbnail"], preview_text)
             if info["thumbnail"] else send_message(bot_token, chat_id, preview_text)
         )
 
-        # Step 3: Download with timeout
+        # Step 3: Prepare file path
         temp_file = os.path.join(tempfile.gettempdir(), info["name"])
         download_task = asyncio.create_task(download_file(info["download_link"], temp_file))
 
+        # Step 4: Attempt to download with timeout
         try:
             await asyncio.wait_for(download_task, timeout=55)
         except asyncio.TimeoutError:
+            # Cancel task and do no more work — STOP
             download_task.cancel()
-            await send_message(bot_token, chat_id, "⚠️ *Download timed out. Try a smaller file or faster server.*")
+            try:
+                await download_task  # Ensures task is cleaned
+            except:
+                pass
             if preview_message_id:
                 delete_message(bot_token, chat_id, preview_message_id)
             if start_message_id:
                 delete_message(bot_token, chat_id, start_message_id)
-            return JSONResponse(status_code=504, content={"error": "Download timed out"})
 
-        # Step 4: Upload to Telegram
+            # Notify user once
+            await send_message(bot_token, chat_id, "⚠️ *Download timed out. Please try again with a smaller file.*")
+            return JSONResponse(status_code=504, content={"error": "Timeout: download cancelled"})
+
+        # Step 5: Send file to Telegram
         with open(temp_file, "rb") as f:
             files = {"document": (info["name"], f)}
             data = {
@@ -121,7 +130,7 @@ async def download_handler(request: Request):
             }
             requests.post(f"https://api.telegram.org/bot{bot_token}/sendDocument", files=files, data=data)
 
-        # Step 5: Cleanup bot messages
+        # Step 6: Delete messages after success
         if preview_message_id:
             delete_message(bot_token, chat_id, preview_message_id)
         if start_message_id:
@@ -130,17 +139,18 @@ async def download_handler(request: Request):
         return {"status": "success", "message": "File sent to Telegram"}
 
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"❌ Error occurred: {e}")
         if preview_message_id:
-            await send_message(bot_token, chat_id, f"❌ *Error occurred:* {str(e)}")
             delete_message(bot_token, chat_id, preview_message_id)
+            await send_message(bot_token, chat_id, f"❌ *Error occurred:* {str(e)}")
         if start_message_id:
             delete_message(bot_token, chat_id, start_message_id)
         return JSONResponse(status_code=500, content={"error": str(e)})
 
     finally:
+        # Cleanup temporary file
         if temp_file and os.path.exists(temp_file):
             try:
                 os.remove(temp_file)
             except Exception as e:
-                print(f"⚠️ Failed to delete temp file: {e}")
+                print(f"⚠️ Temp cleanup failed: {e}")
