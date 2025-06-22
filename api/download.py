@@ -49,11 +49,17 @@ async def send_message(bot_token: str, chat_id: str, text: str) -> int:
     data = response.json()
     return data.get("result", {}).get("message_id")
 
-async def download_file(url: str, dest_path: str):
+async def download_file(url: str, dest_path: str, chat_id: str, bot_token: str, total_size: int):
     response = await asyncio.to_thread(requests.get, url, stream=True)
     response.raise_for_status()
+    
+    downloaded = 0
     with open(dest_path, "wb") as f:
-        shutil.copyfileobj(response.raw, f)
+        for chunk in response.iter_content(chunk_size=8192):
+            f.write(chunk)
+            downloaded += len(chunk)
+            progress = (downloaded / total_size) * 100
+            await send_message(bot_token, chat_id, f"📥 *Download Progress:* {progress:.2f}%")
 
 def delete_message(bot_token: str, chat_id: str, message_id: int):
     requests.post(f"https://api.telegram.org/bot{bot_token}/deleteMessage",
@@ -89,7 +95,7 @@ async def download_handler(request: Request):
         # Download file with a timeout
         temp_file = os.path.join(tempfile.gettempdir(), info["name"])
         try:
-            await asyncio.wait_for(download_file(info["download_link"], temp_file), timeout=50)  # Set timeout to 50 seconds
+            await asyncio.wait_for(download_file(info["download_link"], temp_file, chat_id, bot_token, info["size_bytes"]), timeout=50)  # Set timeout to 50 seconds
         except asyncio.TimeoutError:
             return JSONResponse(status_code=500, content={"error": "Download timed out."})
 
@@ -108,6 +114,11 @@ async def download_handler(request: Request):
             requests.post(f"https://api.telegram.org/bot{bot_token}/sendDocument", files=files, data=data)
 
         # Delete thumbnail or preview message
+        if message_id:
+            delete_message(bot_token, chat_id, message_id)
+
+        # Send completion message and delete progress message
+        await send_message(bot_token, chat_id, "✅ *Download complete!*")
         if message_id:
             delete_message(bot_token, chat_id, message_id)
 
