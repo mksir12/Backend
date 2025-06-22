@@ -1,3 +1,5 @@
+# download.py
+
 import os
 import shutil
 import tempfile
@@ -18,7 +20,7 @@ def get_size(bytes_len: int) -> str:
     return f"{bytes_len} bytes"
 
 def get_file_info(share_url: str) -> dict:
-    for server in [2, 3, 1]:  # Try servers 2, 3, and 1
+    for server in [2, 3, 1]:
         api_url = f"https://teraboxvideodl.pages.dev/api/?url={share_url}&server={server}"
         resp = requests.get(api_url)
         data = resp.json()
@@ -38,16 +40,14 @@ async def send_photo(bot_token: str, chat_id: str, photo: str, caption: str) -> 
         f"https://api.telegram.org/bot{bot_token}/sendPhoto",
         json={"chat_id": chat_id, "photo": photo, "caption": caption, "parse_mode": "Markdown"}
     )
-    data = response.json()
-    return data.get("result", {}).get("message_id")
+    return response.json().get("result", {}).get("message_id")
 
 async def send_message(bot_token: str, chat_id: str, text: str) -> int:
     response = await asyncio.to_thread(requests.post,
         f"https://api.telegram.org/bot{bot_token}/sendMessage",
         json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown", "disable_web_page_preview": True}
     )
-    data = response.json()
-    return data.get("result", {}).get("message_id")
+    return response.json().get("result", {}).get("message_id")
 
 async def download_file(url: str, dest_path: str):
     response = await asyncio.to_thread(requests.get, url, stream=True)
@@ -62,7 +62,7 @@ def delete_message(bot_token: str, chat_id: str, message_id: int):
 @app.post("/api/download")
 async def download_handler(request: Request):
     temp_file = None
-    message_id = None  # Initialize message_id to avoid spamming
+    message_id = None
     try:
         payload = await request.json()
         chat_id = payload.get("chat_id")
@@ -74,51 +74,33 @@ async def download_handler(request: Request):
 
         info = get_file_info(link)
 
-        message = (
-            f"📩 *Link received!*\n"
-            f"⏳ *Processing...*\n"
-            f"🔗 *[TeraBox Link]({link})*"
-        )
+        preview_text = f"📩 *Link received!*\n⏳ *Processing...*\n🔗 *[TeraBox Link]({link})*"
+        message_id = await (send_photo(bot_token, chat_id, info["thumbnail"], preview_text) if info["thumbnail"]
+                            else send_message(bot_token, chat_id, preview_text))
 
-        # Send preview message and store message_id
-        if info["thumbnail"]:
-            message_id = await send_photo(bot_token, chat_id, info["thumbnail"], message)
-        else:
-            message_id = await send_message(bot_token, chat_id, message)
-
-        # Download file with a timeout
         temp_file = os.path.join(tempfile.gettempdir(), info["name"])
         try:
-            await asyncio.wait_for(download_file(info["download_link"], temp_file), timeout=50)  # Set timeout to 50 seconds
+            await asyncio.wait_for(download_file(info["download_link"], temp_file), timeout=25)
         except asyncio.TimeoutError:
-            await send_message(bot_token, chat_id, "⏳ *Download timed out. Retrying...*")
-            # Retry logic can be added here if needed
-            return JSONResponse(status_code=500, content={"error": "Download timed out."})
+            await send_message(bot_token, chat_id, "⚠️ *Download failed due to timeout. Please try a smaller file.*")
+            return JSONResponse(status_code=504, content={"error": "Download timeout"})
 
-        # Send document
         with open(temp_file, "rb") as f:
             files = {"document": (info["name"], f)}
             data = {
                 "chat_id": chat_id,
-                "caption": (
-                    f"📄 *{info['name']}*\n"
-                    f"💾 *{info['size_str']}*\n"
-                    f"🔗 *{link}*"
-                ),
+                "caption": f"📄 *{info['name']}*\n💾 *{info['size_str']}*\n🔗 *{link}*",
                 "parse_mode": "Markdown"
             }
             requests.post(f"https://api.telegram.org/bot{bot_token}/sendDocument", files=files, data=data)
 
-        # Delete thumbnail or preview message
         if message_id:
             delete_message(bot_token, chat_id, message_id)
 
         return {"status": "success", "message": "File sent to Telegram"}
 
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        if message_id:  # Only send error message if a message was sent
+        if message_id:
             await send_message(bot_token, chat_id, f"❌ *Error occurred:* {str(e)}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
