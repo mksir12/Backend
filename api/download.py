@@ -1,5 +1,3 @@
-# download.py
-
 import os
 import shutil
 import tempfile
@@ -50,14 +48,21 @@ async def send_message(bot_token: str, chat_id: str, text: str) -> int:
     return response.json().get("result", {}).get("message_id")
 
 async def download_file(url: str, dest_path: str):
-    response = await asyncio.to_thread(requests.get, url, stream=True)
-    response.raise_for_status()
-    with open(dest_path, "wb") as f:
-        shutil.copyfileobj(response.raw, f)
+    try:
+        response = await asyncio.to_thread(requests.get, url, stream=True, timeout=15)
+        response.raise_for_status()
+        with open(dest_path, "wb") as f:
+            shutil.copyfileobj(response.raw, f)
+    except asyncio.CancelledError:
+        print("Download task was cancelled.")
+        raise
 
 def delete_message(bot_token: str, chat_id: str, message_id: int):
-    requests.post(f"https://api.telegram.org/bot{bot_token}/deleteMessage",
-                  json={"chat_id": chat_id, "message_id": message_id})
+    try:
+        requests.post(f"https://api.telegram.org/bot{bot_token}/deleteMessage",
+                      json={"chat_id": chat_id, "message_id": message_id})
+    except:
+        pass
 
 @app.post("/api/download")
 async def download_handler(request: Request):
@@ -75,15 +80,22 @@ async def download_handler(request: Request):
         info = get_file_info(link)
 
         preview_text = f"📩 *Link received!*\n⏳ *Processing...*\n🔗 *[TeraBox Link]({link})*"
-        message_id = await (send_photo(bot_token, chat_id, info["thumbnail"], preview_text) if info["thumbnail"]
-                            else send_message(bot_token, chat_id, preview_text))
+        message_id = await (
+            send_photo(bot_token, chat_id, info["thumbnail"], preview_text)
+            if info["thumbnail"] else send_message(bot_token, chat_id, preview_text)
+        )
 
         temp_file = os.path.join(tempfile.gettempdir(), info["name"])
+
+        download_task = asyncio.create_task(download_file(info["download_link"], temp_file))
         try:
-            await asyncio.wait_for(download_file(info["download_link"], temp_file), timeout=25)
+            await asyncio.wait_for(download_task, timeout=25)
         except asyncio.TimeoutError:
-            await send_message(bot_token, chat_id, "⚠️ *Download failed due to timeout. Please try a smaller file.*")
-            return JSONResponse(status_code=504, content={"error": "Download timeout"})
+            download_task.cancel()
+            await send_message(bot_token, chat_id, "⚠️ *Download timed out. Please try a smaller file.*")
+            if message_id:
+                delete_message(bot_token, chat_id, message_id)
+            return JSONResponse(status_code=504, content={"error": "Download timed out"})
 
         with open(temp_file, "rb") as f:
             files = {"document": (info["name"], f)}
@@ -102,6 +114,7 @@ async def download_handler(request: Request):
     except Exception as e:
         if message_id:
             await send_message(bot_token, chat_id, f"❌ *Error occurred:* {str(e)}")
+            delete_message(bot_token, chat_id, message_id)
         return JSONResponse(status_code=500, content={"error": str(e)})
 
     finally:
