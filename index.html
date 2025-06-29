@@ -4,20 +4,24 @@
   <meta charset="UTF-8">
   <title>Paste & Share HTML</title>
   <style>
-    body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
-    textarea { width: 90%; height: 300px; font-family: monospace; margin-bottom: 20px; }
+    body { font-family: Arial; text-align: center; padding: 20px; }
+    textarea { width: 90%; height: 300px; margin-bottom: 20px; font-family: monospace; }
     button { padding: 10px 20px; font-size: 16px; }
   </style>
 </head>
 <body>
-  <h1>Paste Your HTML Code</h1>
-  <textarea id="htmlInput" placeholder="Paste your HTML code here..."></textarea><br>
-  <button onclick="uploadHTML()">Make Temporary Page</button>
+  <h1>Paste HTML → Get a Preview Link</h1>
+  <textarea id="htmlInput" placeholder="Paste your HTML code..."></textarea><br>
+  <button onclick="uploadHTML()">Create Temporary Page</button>
 
   <script>
+    function randomSlug(length = 8) {
+      return Math.random().toString(36).substring(2, 2 + length);
+    }
+
     async function uploadHTML() {
       const html = document.getElementById("htmlInput").value.trim();
-      if (!html) return alert("Please paste some HTML.");
+      if (!html) return alert("Paste some HTML code first.");
 
       const blob = new Blob([html], { type: "text/html" });
       const formData = new FormData();
@@ -25,20 +29,27 @@
       formData.append("fileToUpload", blob, "page.html");
 
       try {
-        const res = await fetch("https://catbox.moe/user/api.php", {
+        const catboxRes = await fetch("https://catbox.moe/user/api.php", {
           method: "POST",
           body: formData
         });
-        const url = await res.text();
 
-        if (url.startsWith("https://")) {
-          const viewerURL = `/viewer.html?url=${encodeURIComponent(url)}`;
-          window.location.href = viewerURL;
-        } else {
-          alert("Upload failed:\n" + url);
+        const catboxURL = await catboxRes.text();
+        if (!catboxURL.startsWith("https://")) {
+          return alert("Upload failed:\n" + catboxURL);
         }
+
+        const slug = randomSlug();
+        // Save mapping to Vercel backend
+        await fetch(`/api/htm/${slug}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: catboxURL })
+        });
+
+        window.location.href = `/htm/${slug}`;
       } catch (err) {
-        alert("Error uploading: " + err.message);
+        alert("Upload failed: " + err.message);
       }
     }
   </script>
