@@ -27,20 +27,19 @@
       </head>
       <body>
     
-  <h1>Test Your HTML+CSS+JS</h1>
-  <textarea id="htmlInput" placeholder="Paste your HTML here..."></textarea><br>
-  <button id="submitBtn">Make Temporary Webpage</button>
+  <h1>Test Umbb HTML</h1>
+  <textarea id="htmlInput" placeholder="Paste your HTML..." style="width:90%; height:300px;"></textarea><br>
+  <button onclick="createPage()">Make Temporary Webpage</button>
 
   <script>
-    document.getElementById("submitBtn").addEventListener("click", function () {
+    function createPage() {
       const html = document.getElementById("htmlInput").value.trim();
-      if (!html) {
-        alert("Please enter some HTML code first.");
-        return;
-      }
-      sessionStorage.setItem("temp_html", html); // store in browser session
-      window.location.href = "viewer.html"; // open viewer page
-    });
+      if (!html) return alert("Please paste some HTML code first.");
+
+      const slug = Math.random().toString(36).substring(2, 10);
+      sessionStorage.setItem("html_" + slug, html);
+      window.location.href = `/html/${slug}`;
+    }
   </script>
 </body>
 </html>
