@@ -34,8 +34,18 @@
 <body>
   <h1>Test Your HTML</h1>
   <textarea id="htmlInput" placeholder="Paste your HTML here..."></textarea><br>
-  <button onclick="renderPreview()">Make Temporary Webpage</button>
+  <button id="submitBtn">Make Temporary Webpage</button>
 
-  <script src="script.js"></script>
+  <script>
+    document.getElementById("submitBtn").addEventListener("click", function () {
+      const html = document.getElementById("htmlInput").value.trim();
+      if (!html) {
+        alert("Please enter some HTML code first.");
+        return;
+      }
+      const encoded = encodeURIComponent(btoa(html));
+      window.location.href = `viewer.html?code=${encoded}`;
+    });
+  </script>
 </body>
 </html>
