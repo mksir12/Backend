@@ -1,36 +1,25 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <title>HTML PREVIEW</title>
+  <meta charset="UTF-8" />
+  <title>HTML Preview</title>
   <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      background: #fff;
-    }
-    iframe {
-      width: 100%;
-      height: 100%;
-      border: none;
-      display: block;
-    }
+    html, body { margin: 0; padding: 0; height: 100%; }
+    iframe { width: 100%; height: 100%; border: none; }
   </style>
 </head>
 <body>
   <iframe id="preview"></iframe>
-
   <script>
-    const html = sessionStorage.getItem("temp_html");
+    const slug = window.location.pathname.split("/").pop();
+    const html = sessionStorage.getItem("html_" + slug);
     const iframe = document.getElementById("preview");
 
     if (html) {
-      const blob = new Blob([html], { type: 'text/html' });
-      const blobUrl = URL.createObjectURL(blob);
-      iframe.src = blobUrl;
+      const blob = new Blob([html], { type: "text/html" });
+      iframe.src = URL.createObjectURL(blob);
     } else {
-      document.body.innerHTML = "<h1 style='text-align:center;padding:2rem;'>No HTML code provided or session expired.</h1>";
+      document.body.innerHTML = "<h1 style='padding:2rem;text-align:center;'>Session expired or invalid link.</h1>";
     }
   </script>
 </body>
