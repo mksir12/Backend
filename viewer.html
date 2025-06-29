@@ -4,10 +4,11 @@
   <meta charset="UTF-8">
   <title>HTML Preview</title>
   <style>
-    body, html {
+    html, body {
       margin: 0;
       padding: 0;
       height: 100%;
+      background: #fff;
     }
     iframe {
       width: 100%;
@@ -25,12 +26,12 @@
     const iframe = document.getElementById("preview");
 
     if (html) {
-      // Inject full HTML into iframe document
-      iframe.onload = () => {
-        iframe.contentWindow.document.open();
-        iframe.contentWindow.document.write(html);
-        iframe.contentWindow.document.close();
-      };
+      setTimeout(() => {
+        const doc = iframe.contentWindow.document;
+        doc.open();
+        doc.write(html);
+        doc.close();
+      }, 0);
     } else {
       document.body.innerHTML = "<h1 style='text-align:center;padding:2rem;'>No HTML code provided or session expired.</h1>";
     }
