@@ -8,18 +8,11 @@
   <iframe id="preview" style="width:100vw; height:100vh; border:none;"></iframe>
 
   <script>
-    const params = new URLSearchParams(window.location.search);
-    const encoded = params.get("code");
-
-    if (encoded) {
-      try {
-        const decoded = atob(decodeURIComponent(encoded));
-        document.getElementById("preview").srcdoc = decoded;
-      } catch (err) {
-        document.body.innerHTML = "<h1>Error decoding HTML.</h1>";
-      }
+    const html = sessionStorage.getItem("temp_html");
+    if (html) {
+      document.getElementById("preview").srcdoc = html;
     } else {
-      document.body.innerHTML = "<h1>No HTML code provided.</h1>";
+      document.body.innerHTML = "<h1>No HTML code provided or session expired.</h1>";
     }
   </script>
 </body>
