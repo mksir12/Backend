@@ -32,7 +32,7 @@
   </style>
 </head>
 <body>
-  <h1>Test Your HTML</h1>
+  <h1>Test YUnwjwkwo</h1>
   <textarea id="htmlInput" placeholder="Paste your HTML code here..."></textarea><br>
   <button onclick="createPage()">Make Temporary Webpage</button>
   <p id="msg" style="margin-top: 20px;"></p>
@@ -64,7 +64,7 @@
         }
 
         const slug = Math.random().toString(36).substring(2, 10);
-        const apiRes = await fetch(`/api/htm/${slug}`, {
+        const apiRes = await fetch('https://hosthtml.vercel.app/api/htm/' + slug, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url: fileUrl })
