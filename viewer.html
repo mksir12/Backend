@@ -27,9 +27,21 @@
 
     if (html) {
       setTimeout(() => {
+        const hasViewportMeta = /<meta\s+name=["']viewport["']/i.test(html);
         const doc = iframe.contentWindow.document;
+
+        let fixedHTML = html;
+
+        // If <meta name="viewport"> is missing, inject it in <head>
+        if (!hasViewportMeta) {
+          fixedHTML = html.replace(
+            /<head([^>]*)>/i,
+            `<head$1><meta name="viewport" content="width=device-width, initial-scale=1.0">`
+          );
+        }
+
         doc.open();
-        doc.write(html);
+        doc.write(fixedHTML);
         doc.close();
       }, 0);
     } else {
