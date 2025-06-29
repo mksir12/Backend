@@ -1,35 +1,56 @@
-<!DOCTYPE html><html lang="en"><head>
-        <meta charset="UTF-8">
-        <title>Test Your HTML</title>
-        <style>
-          body { font-family: Arial; background: #f4f4f4; text-align: center; padding: 20px; }
-          textarea {
-            width: 90%;
-            height: 1500px;
-            margin: 20px 0;
-            padding: 10px;
-            font-size: 16px;
-            font-family: monospace;
-            border: 1px solid #ccc;
-            border-radius: 6px;
-          }
-          button {
-            padding: 12px 24px;
-            background: #007BFF;
-            color: #fff;
-            border: none;
-            font-size: 16px;
-            border-radius: 6px;
-            cursor: pointer;
-          }
-        </style>
-      </head>
-      <body>
-        <h1>Test Your HTML</h1>
-        <form method="POST" action="/html/preview">
-          <textarea name="html_code" placeholder="Paste your HTML here..."></textarea><br>
-          <button type="submit">Make Temporary Webpage</button>
-        </form>
-      
-    
-  </body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Test Your HTML</title>
+  <style>
+    body {
+      font-family: Arial;
+      background: #f4f4f4;
+      text-align: center;
+      padding: 20px;
+    }
+    textarea {
+      width: 90%;
+      height: 400px;
+      margin: 20px 0;
+      padding: 10px;
+      font-size: 16px;
+      font-family: monospace;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+    }
+    button {
+      padding: 12px 24px;
+      background: #007BFF;
+      color: #fff;
+      border: none;
+      font-size: 16px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    iframe {
+      width: 90%;
+      height: 600px;
+      margin-top: 20px;
+      border: 2px solid #444;
+      background: white;
+    }
+  </style>
+</head>
+<body>
+  <h1>Test Your HTML</h1>
+  <textarea id="htmlInput" placeholder="Paste your HTML here..."></textarea><br>
+  <button onclick="renderPreview()">Make Temporary Webpage</button>
+
+  <iframe id="previewFrame"></iframe>
+
+  <script>
+    function renderPreview() {
+      const htmlCode = document.getElementById('htmlInput').value;
+      const previewFrame = document.getElementById('previewFrame');
+      previewFrame.srcdoc = htmlCode;
+    }
+  </script>
+</body>
+</html>
