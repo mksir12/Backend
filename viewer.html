@@ -1,25 +1,25 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>HTML Preview</title>
+  <meta charset="UTF-8">
+  <title>HTML Viewer</title>
   <style>
-    html, body { margin: 0; padding: 0; height: 100%; }
-    iframe { width: 100%; height: 100%; border: none; }
+    html, body { margin: 0; padding: 0; height: 100%; background: #fff; }
+    iframe { width: 100%; height: 100%; border: none; display: block; }
   </style>
 </head>
 <body>
-  <iframe id="preview"></iframe>
+  <iframe id="preview" sandbox="allow-scripts allow-forms allow-same-origin"></iframe>
+
   <script>
-    const slug = window.location.pathname.split("/").pop();
-    const html = sessionStorage.getItem("html_" + slug);
+    const params = new URLSearchParams(window.location.search);
+    const url = params.get("url");
     const iframe = document.getElementById("preview");
 
-    if (html) {
-      const blob = new Blob([html], { type: "text/html" });
-      iframe.src = URL.createObjectURL(blob);
+    if (url && url.startsWith("https://files.catbox.moe")) {
+      iframe.src = url;
     } else {
-      document.body.innerHTML = "<h1 style='padding:2rem;text-align:center;'>Session expired or invalid link.</h1>";
+      document.body.innerHTML = "<h1 style='padding:2rem;text-align:center;'>Invalid or missing preview URL.</h1>";
     }
   </script>
 </body>
