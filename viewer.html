@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Preview</title>
+</head>
+<body style="margin:0">
+  <iframe id="preview" style="width:100vw; height:100vh; border:none;"></iframe>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const encoded = params.get("code");
+    if (encoded) {
+      try {
+        const decoded = atob(decodeURIComponent(encoded));
+        document.getElementById("preview").srcdoc = decoded;
+      } catch (e) {
+        document.body.innerHTML = "<h1>Error decoding HTML</h1>";
+      }
+    } else {
+      document.body.innerHTML = "<h1>No HTML provided</h1>";
+    }
+  </script>
+</body>
+</html>
