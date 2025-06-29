@@ -40,7 +40,6 @@
         }
 
         const slug = randomSlug();
-        // Save mapping to Vercel backend
         await fetch(`/api/htm/${slug}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
