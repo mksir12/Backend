@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Test Your HTML</title>
+  <title>Test Umbb HTML</title>
   <style>
     body {
       font-family: Arial;
@@ -43,8 +43,8 @@
         alert("Please enter some HTML code first.");
         return;
       }
-      const encoded = encodeURIComponent(btoa(html));
-      window.location.href = `viewer.html?code=${encoded}`;
+      sessionStorage.setItem("temp_html", html); // store in browser session
+      window.location.href = "viewer.html"; // open viewer page
     });
   </script>
 </body>
