@@ -1,5 +1,3 @@
-// api/htm/[slug].js
-
 export const config = {
   runtime: 'edge',
 };
@@ -34,7 +32,6 @@ export default async function handler(req, context) {
       });
     }
 
-    // Optional expiry: 1 hour
     const oneHour = 60 * 60 * 1000;
     if (Date.now() - entry.created > oneHour) {
       store.delete(slug);
@@ -43,17 +40,16 @@ export default async function handler(req, context) {
       });
     }
 
-    // Serve viewer with iframe
-    const html = `
+    const html = \`
       <!DOCTYPE html>
       <html><head><title>Preview</title><style>
         html, body { margin:0; padding:0; height:100%; }
         iframe { width:100%; height:100%; border:none; }
       </style></head>
       <body>
-        <iframe src="${entry.url}" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
+        <iframe src="\${entry.url}" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
       </body></html>
-    `;
+    \`;
     return new Response(html, { headers: { 'Content-Type': 'text/html' } });
   }
 
