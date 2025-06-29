@@ -1,44 +1,45 @@
 <!DOCTYPE html>
-<html lang="en"><head>
-        <meta charset="UTF-8">
-        <title>Test Your HTML</title>
-        <style>
-          body { font-family: Arial; background: #f4f4f4; text-align: center; padding: 20px; }
-          textarea {
-            width: 90%;
-            height: 1500px;
-            margin: 20px 0;
-            padding: 10px;
-            font-size: 16px;
-            font-family: monospace;
-            border: 1px solid #ccc;
-            border-radius: 6px;
-          }
-          button {
-            padding: 12px 24px;
-            background: #007BFF;
-            color: #fff;
-            border: none;
-            font-size: 16px;
-            border-radius: 6px;
-            cursor: pointer;
-          }
-        </style>
-      </head>
-      <body>
-    
-  <h1>Test Umbb HTML</h1>
-  <textarea id="htmlInput" placeholder="Paste your HTML..." style="width:90%; height:300px;"></textarea><br>
-  <button onclick="createPage()">Make Temporary Webpage</button>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Paste & Share HTML</title>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
+    textarea { width: 90%; height: 300px; font-family: monospace; margin-bottom: 20px; }
+    button { padding: 10px 20px; font-size: 16px; }
+  </style>
+</head>
+<body>
+  <h1>Paste Your HTML Code</h1>
+  <textarea id="htmlInput" placeholder="Paste your HTML code here..."></textarea><br>
+  <button onclick="uploadHTML()">Make Temporary Page</button>
 
   <script>
-    function createPage() {
+    async function uploadHTML() {
       const html = document.getElementById("htmlInput").value.trim();
-      if (!html) return alert("Please paste some HTML code first.");
+      if (!html) return alert("Please paste some HTML.");
 
-      const slug = Math.random().toString(36).substring(2, 10);
-      sessionStorage.setItem("html_" + slug, html);
-      window.location.href = `/html/${slug}`;
+      const blob = new Blob([html], { type: "text/html" });
+      const formData = new FormData();
+      formData.append("reqtype", "fileupload");
+      formData.append("fileToUpload", blob, "page.html");
+
+      try {
+        const res = await fetch("https://catbox.moe/user/api.php", {
+          method: "POST",
+          body: formData
+        });
+        const url = await res.text();
+
+        if (url.startsWith("https://")) {
+          const viewerURL = `/viewer.html?url=${encodeURIComponent(url)}`;
+          window.location.href = viewerURL;
+        } else {
+          alert("Upload failed:\n" + url);
+        }
+      } catch (err) {
+        alert("Error uploading: " + err.message);
+      }
     }
   </script>
 </body>
