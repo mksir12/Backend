@@ -2,53 +2,82 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Paste & Share HTML</title>
+  <title>Test Your HTML</title>
   <style>
-    body { font-family: Arial; text-align: center; padding: 20px; }
-    textarea { width: 90%; height: 300px; margin-bottom: 20px; font-family: monospace; }
-    button { padding: 10px 20px; font-size: 16px; }
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f4f4;
+      text-align: center;
+      padding: 20px;
+    }
+    textarea {
+      width: 90%;
+      height: 500px;
+      margin: 20px 0;
+      padding: 10px;
+      font-size: 16px;
+      font-family: monospace;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+    }
+    button {
+      padding: 12px 24px;
+      background: #007BFF;
+      color: #fff;
+      border: none;
+      font-size: 16px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
-  <h1>Paste HTML → Get a Preview Link</h1>
-  <textarea id="htmlInput" placeholder="Paste your HTML code..."></textarea><br>
-  <button onclick="uploadHTML()">Create Temporary Page</button>
+  <h1>Test Your HTML</h1>
+  <textarea id="htmlInput" placeholder="Paste your HTML code here..."></textarea><br>
+  <button onclick="createPage()">Make Temporary Webpage</button>
+  <p id="msg" style="margin-top: 20px;"></p>
 
   <script>
-    function randomSlug(length = 8) {
-      return Math.random().toString(36).substring(2, 2 + length);
-    }
+    async function createPage() {
+      const html = document.getElementById('htmlInput').value.trim();
+      const msg = document.getElementById('msg');
+      if (!html) return msg.innerText = '❌ Please paste some HTML code.';
 
-    async function uploadHTML() {
-      const html = document.getElementById("htmlInput").value.trim();
-      if (!html) return alert("Paste some HTML code first.");
-
-      const blob = new Blob([html], { type: "text/html" });
-      const formData = new FormData();
-      formData.append("reqtype", "fileupload");
-      formData.append("fileToUpload", blob, "page.html");
+      msg.innerText = '⏳ Uploading to Catbox...';
 
       try {
+        const blob = new Blob([html], { type: 'text/html' });
+        const form = new FormData();
+        form.append("reqtype", "fileupload");
+        form.append("fileToUpload", blob, "temp.html");
+
         const catboxRes = await fetch("https://catbox.moe/user/api.php", {
           method: "POST",
-          body: formData
+          body: form
         });
 
-        const catboxURL = await catboxRes.text();
-        if (!catboxURL.startsWith("https://")) {
-          return alert("Upload failed:\n" + catboxURL);
+        const fileUrl = await catboxRes.text();
+
+        if (!fileUrl.startsWith("http")) {
+          msg.innerText = "❌ Upload failed: " + fileUrl;
+          return;
         }
 
-        const slug = randomSlug();
-        await fetch(`/api/htm/${slug}`, {
+        const slug = Math.random().toString(36).substring(2, 10);
+        const apiRes = await fetch(`/api/htm/${slug}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: catboxURL })
+          body: JSON.stringify({ url: fileUrl })
         });
 
-        window.location.href = `/htm/${slug}`;
+        if (apiRes.ok) {
+          window.location.href = `/htm/${slug}`;
+        } else {
+          msg.innerText = "❌ Failed to register URL.";
+        }
+
       } catch (err) {
-        alert("Upload failed: " + err.message);
+        msg.innerText = "❌ Error: " + err.message;
       }
     }
   </script>
