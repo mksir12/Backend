@@ -1,0 +1,9 @@
+{
+  "name": "youtube-downloader-api",
+  "version": "1.0.0",
+  "main": "api/youtube.js",
+  "dependencies": {
+    "ruhend-scraper": "latest",
+    "yt-search": "latest"
+  }
+}
