@@ -1,25 +1,23 @@
-const { ytmp4, ytmp3 } = require("ruhend-scraper");
+const ytdl = require("ytdl-core");
 const yts = require("yt-search");
 
 module.exports = async (req, res) => {
   try {
-    const { query } = req; // Example: /api/youtube?search=naruto
+    const { query } = req;
     const input = query.search;
 
-    if (!input) {
-      return res.status(400).json({ error: "Missing search parameter" });
-    }
+    if (!input) return res.status(400).json({ error: "Missing search parameter" });
 
+    // search YouTube
     let ytSearch = await yts(input);
-    if (!ytSearch.videos || ytSearch.videos.length === 0) {
-      return res.status(404).json({ error: "No videos found" });
-    }
+    if (!ytSearch.videos.length) return res.status(404).json({ error: "No videos found" });
 
-    let { title, url, thumbnail, description, views, ago, duration } =
-      ytSearch.videos[0];
+    let { title, url, thumbnail, description, views, ago, duration } = ytSearch.videos[0];
 
-    let { video, quality, size } = await ytmp4(url);
-    let { audio } = await ytmp3(url);
+    // get video + audio download links
+    let info = await ytdl.getInfo(url);
+    let formats = ytdl.filterFormats(info.formats, "audioandvideo");
+    let audioFormats = ytdl.filterFormats(info.formats, "audioonly");
 
     let resultados = {
       title,
@@ -30,17 +28,16 @@ module.exports = async (req, res) => {
       url,
       thumbnail,
       video: {
-        dl_link: video,
-        size,
-        quality,
+        dl_link: formats[0]?.url,
+        quality: formats[0]?.qualityLabel,
       },
       audio: {
-        dl_link: audio,
+        dl_link: audioFormats[0]?.url,
       },
     };
 
     res.status(200).json(resultados);
   } catch (err) {
-    res.status(500).json({ error: err.message || "Internal Server Error" });
+    res.status(500).json({ error: err.message });
   }
 };
