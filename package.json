@@ -5,6 +5,6 @@
   "dependencies": {
     "ruhend-scraper": "latest",
     "yt-search": "latest",
-    "node-fetch": "^2.6.7"
+    "node-fetch": "2.6.7"
   }
 }
