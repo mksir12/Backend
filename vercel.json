@@ -1,5 +1,9 @@
 {
-  "rewrites": [
-    { "source": "/html/:slug", "destination": "/viewer.html" }
+  "version": 2,
+  "builds": [
+    { "src": "api/youtube.js", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "/api/youtube", "dest": "/api/youtube.js" }
   ]
 }
