@@ -4,6 +4,7 @@
   "main": "api/youtube.js",
   "dependencies": {
     "ruhend-scraper": "latest",
-    "yt-search": "latest"
+    "yt-search": "latest",
+    "node-fetch": "^2.6.7"
   }
 }
